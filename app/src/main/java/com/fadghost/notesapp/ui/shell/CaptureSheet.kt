@@ -39,8 +39,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.fadghost.notesapp.ui.components.rememberAuraHaptics
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraType
+import com.fadghost.notesapp.ui.theme.LocalReduceMotion
+import com.fadghost.notesapp.ui.theme.MotionTokens
 import kotlinx.coroutines.launch
 
 data class CaptureAction(val label: String, val subtitle: String)
@@ -66,16 +69,15 @@ fun CaptureSheet(
     val tokens = Aura.tokens
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
+    val reduceMotion = LocalReduceMotion.current
+    val haptics = rememberAuraHaptics()
     val sheetHeightPx = with(density) { 360.dp.toPx() }
     val offsetY = remember { Animatable(sheetHeightPx) }
     val scrimAlpha = remember { Animatable(0f) }
 
     LaunchedEffect(Unit) {
         launch { scrimAlpha.animateTo(1f, tween(220)) }
-        offsetY.animateTo(
-            0f,
-            spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow)
-        )
+        offsetY.animateTo(0f, MotionTokens.bouncy(reduceMotion))
     }
 
     suspend fun close() {
@@ -147,7 +149,7 @@ fun CaptureSheet(
             )
             Spacer(Modifier.height(8.dp))
             actions.forEach { action ->
-                ActionRow(action = action, onClick = { onAction(action); scope.launch { close() } })
+                ActionRow(action = action, onClick = { haptics.confirm(); onAction(action); scope.launch { close() } })
             }
         }
     }

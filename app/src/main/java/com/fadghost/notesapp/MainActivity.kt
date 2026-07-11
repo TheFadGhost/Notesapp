@@ -6,8 +6,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.fadghost.notesapp.data.prefs.ThemeMode
@@ -15,12 +18,21 @@ import com.fadghost.notesapp.data.work.DiaryNudgeWorker
 import com.fadghost.notesapp.ui.MainViewModel
 import com.fadghost.notesapp.notify.ReminderNotifier
 import com.fadghost.notesapp.ui.calendar.CalendarDeepLink
+import com.fadghost.notesapp.ui.capture.CaptureLaunch
+import com.fadghost.notesapp.ui.capture.CaptureRequest
 import com.fadghost.notesapp.ui.diary.DiaryLaunch
 import com.fadghost.notesapp.ui.diary.DiaryLockManager
 import com.fadghost.notesapp.ui.shell.AppShell
+import com.fadghost.notesapp.ui.theme.Aura
+import com.fadghost.notesapp.ui.theme.AuraAccents
 import com.fadghost.notesapp.ui.theme.AuraTheme
-import com.fadghost.notesapp.ui.theme.DarkTokens
-import com.fadghost.notesapp.ui.theme.LightTokens
+import com.fadghost.notesapp.ui.theme.LocalReduceMotion
+import com.fadghost.notesapp.ui.theme.ReduceMotion
+import com.fadghost.notesapp.ui.theme.ThemeResolver
+import com.fadghost.notesapp.ui.theme.ThemeRevealScaffold
+import com.fadghost.notesapp.ui.theme.rememberAnimatedTokens
+import com.fadghost.notesapp.ui.theme.withAccent
+import com.fadghost.notesapp.ui.whatsnew.WhatsNewHost
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -60,28 +72,83 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handleDeepLink(intent: Intent?) {
-        if (intent?.getBooleanExtra(DiaryNudgeWorker.EXTRA_OPEN_DIARY, false) == true) {
+        if (intent == null) return
+        if (intent.getBooleanExtra(DiaryNudgeWorker.EXTRA_OPEN_DIARY, false)) {
             diaryLaunch.requestOpenDiary()
         }
         // Reminder-notification tap → open the item on the Calendar tab (PLAN.md §8).
-        if (intent?.getBooleanExtra(ReminderNotifier.EXTRA_OPEN_CALENDAR, false) == true) {
+        if (intent.getBooleanExtra(ReminderNotifier.EXTRA_OPEN_CALENDAR, false)) {
             CalendarDeepLink.request(intent.getLongExtra(ReminderNotifier.EXTRA_REMINDER_ID, -1L))
         }
+        // Capture paths (PLAN.md §6): tile, shortcuts, share/selected-text.
+        handleCaptureIntent(intent)
+    }
+
+    /** Route tile / shortcut / share intents into a [CaptureRequest] for the shell. */
+    private fun handleCaptureIntent(intent: Intent) {
+        when {
+            intent.getStringExtra(EXTRA_CAPTURE) == CAPTURE_NEW_NOTE ||
+                intent.action == ACTION_NEW_NOTE ->
+                CaptureLaunch.post(CaptureRequest.NewNote)
+
+            intent.action == ACTION_VOICE ->
+                CaptureLaunch.post(CaptureRequest.Voice)
+
+            intent.action == ACTION_TODAY_DIARY ->
+                CaptureLaunch.post(CaptureRequest.TodayDiary)
+
+            intent.action == Intent.ACTION_SEND && intent.type == "text/plain" -> {
+                val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+                if (!text.isNullOrBlank()) CaptureLaunch.post(CaptureRequest.SharedText(text))
+            }
+
+            intent.action == Intent.ACTION_PROCESS_TEXT -> {
+                val text = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
+                if (!text.isNullOrBlank()) CaptureLaunch.post(CaptureRequest.SharedText(text))
+            }
+        }
+    }
+
+    companion object {
+        const val EXTRA_CAPTURE = "com.fadghost.notesapp.extra.CAPTURE"
+        const val CAPTURE_NEW_NOTE = "new_note"
+        const val ACTION_NEW_NOTE = "com.fadghost.notesapp.action.NEW_NOTE"
+        const val ACTION_VOICE = "com.fadghost.notesapp.action.VOICE"
+        const val ACTION_TODAY_DIARY = "com.fadghost.notesapp.action.TODAY_DIARY"
     }
 }
 
 @Composable
 private fun NotesRoot(viewModel: MainViewModel = hiltViewModel()) {
     val mode by viewModel.themeMode.collectAsState()
-    val dark = when (mode) {
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-    }
-    AuraTheme(tokens = if (dark) DarkTokens else LightTokens) {
-        AppShell(
-            themeMode = mode,
-            onSelectThemeMode = viewModel::setThemeMode
-        )
+    val accentIndex by viewModel.accentIndex.collectAsState()
+    val userReduceMotion by viewModel.reduceMotion.collectAsState()
+
+    val systemDark = isSystemInDarkTheme()
+    val context = LocalContext.current
+    // System animator scale (0 == animations off) OR the in-app toggle.
+    val systemScale = remember { ReduceMotion.systemAnimatorScale(context) }
+    val reduceMotion = ReduceMotion.effective(userReduceMotion, systemScale)
+
+    // Base tokens by mode, then apply the accent override, then morph smoothly.
+    val target = ThemeResolver.baseTokens(mode, systemDark)
+        .withAccent(AuraAccents.accentForIndex(accentIndex))
+    val animated by rememberAnimatedTokens(target, reduceMotion)
+
+    CompositionLocalProvider(LocalReduceMotion provides reduceMotion) {
+        AuraTheme(tokens = animated) {
+            // Circular reveal from the tapped control on any theme/accent change.
+            ThemeRevealScaffold(
+                revealKey = mode to accentIndex,
+                revealColor = target.colors.background,
+                reduceMotion = reduceMotion
+            ) {
+                AppShell(
+                    themeMode = mode,
+                    onSelectThemeMode = viewModel::setThemeMode
+                )
+                WhatsNewHost()
+            }
+        }
     }
 }

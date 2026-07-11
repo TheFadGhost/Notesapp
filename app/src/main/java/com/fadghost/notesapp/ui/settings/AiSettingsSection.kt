@@ -68,6 +68,7 @@ fun AiSettingsSection(viewModel: AiSettingsViewModel = hiltViewModel()) {
     val lastCall by viewModel.lastCall.collectAsState()
     val status by viewModel.status.collectAsState()
     val busy by viewModel.busy.collectAsState()
+    val autoCleanTranscript by viewModel.autoCleanTranscript.collectAsState()
 
     val clipboard = LocalClipboardManager.current
     var keyInput by remember { mutableStateOf("") }
@@ -137,7 +138,30 @@ fun AiSettingsSection(viewModel: AiSettingsViewModel = hiltViewModel()) {
         // --- Models ---
         ModelRow("Text model", textModel) { picker = PickerTarget.TEXT }
         DividerLineAi()
-        ModelRow("Speech-to-text model", sttModel, subtitle = "Used for voice notes in M4") { picker = PickerTarget.STT }
+        ModelRow("Speech-to-text model", sttModel, subtitle = "Used for voice notes") { picker = PickerTarget.STT }
+
+        DividerLineAi()
+
+        // --- Voice transcript post-processing (PLAN.md §5) ---
+        BasicText("Voice transcripts", style = AuraType.body.copy(color = tokens.colors.textPrimary))
+        BasicText(
+            if (autoCleanTranscript) "Auto clean-up runs after each transcription"
+            else "Kept verbatim — no AI post-processing",
+            style = AuraType.label.copy(color = tokens.colors.textSecondary)
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            com.fadghost.notesapp.ui.components.PlainChip(
+                label = "Keep verbatim",
+                selected = !autoCleanTranscript,
+                onClick = { viewModel.setAutoCleanTranscript(false) }
+            )
+            com.fadghost.notesapp.ui.components.PlainChip(
+                label = "Auto clean-up",
+                selected = autoCleanTranscript,
+                onClick = { viewModel.setAutoCleanTranscript(true) }
+            )
+        }
 
         DividerLineAi()
 

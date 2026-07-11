@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.LaunchedEffect
 import com.fadghost.notesapp.data.prefs.ThemeMode
+import com.fadghost.notesapp.ui.capture.CaptureLaunch
+import com.fadghost.notesapp.ui.capture.CaptureRequest
 import com.fadghost.notesapp.ui.DraftRecoveryViewModel
 import com.fadghost.notesapp.ui.diary.DiaryNavViewModel
 import com.fadghost.notesapp.ui.diary.DiaryScreen
@@ -59,15 +61,40 @@ fun AppShell(
     themeMode: ThemeMode,
     onSelectThemeMode: (ThemeMode) -> Unit,
     draftRecovery: DraftRecoveryViewModel = hiltViewModel(),
-    diaryNav: DiaryNavViewModel = hiltViewModel()
+    diaryNav: DiaryNavViewModel = hiltViewModel(),
+    captureVm: com.fadghost.notesapp.ui.capture.CaptureViewModel = hiltViewModel()
 ) {
     val tokens = Aura.tokens
+    val reduceMotion = com.fadghost.notesapp.ui.theme.LocalReduceMotion.current
     var selectedTab by rememberSaveable { mutableStateOf(NavTab.NOTES) }
     var captureVisible by remember { mutableStateOf(false) }
     // Editor overlay: null == list; value == open note id (0 == new). Survives config change.
     var editorNoteId by rememberSaveable { mutableStateOf<Long?>(null) }
     var restoringDraft by remember { mutableStateOf(false) }
     var showQuickReminder by remember { mutableStateOf(false) }
+    var showVoiceCapture by remember { mutableStateOf(false) }
+
+    // Capture paths (PLAN.md §6): tile / shortcuts / share → route into the shell.
+    val captureRequest by CaptureLaunch.request.collectAsState()
+    LaunchedEffect(captureRequest) {
+        when (val req = captureRequest) {
+            is CaptureRequest.NewNote -> { editorNoteId = 0L; restoringDraft = false }
+            is CaptureRequest.Voice -> { editorNoteId = null; captureVisible = true }
+            is CaptureRequest.TodayDiary -> { selectedTab = NavTab.DIARY; editorNoteId = null }
+            is CaptureRequest.SharedText -> captureVm.createNoteFromText(req.text)
+            null -> {}
+        }
+        if (captureRequest != null) CaptureLaunch.clear()
+    }
+    // Shared-text note created off-thread → open it in the editor.
+    val sharedNoteId by captureVm.openNoteId.collectAsState()
+    LaunchedEffect(sharedNoteId) {
+        sharedNoteId?.let { id ->
+            editorNoteId = id
+            restoringDraft = false
+            captureVm.consumeOpen()
+        }
+    }
 
     // Journaling-nudge deep link (PLAN.md §7): jump to the Diary tab when requested.
     val diaryRequests by diaryNav.openDiaryRequests.collectAsState()
@@ -107,8 +134,8 @@ fun AppShell(
             AnimatedContent(
                 targetState = selectedTab,
                 transitionSpec = {
-                    (fadeIn(spring(stiffness = Spring.StiffnessMediumLow)))
-                        .togetherWith(fadeOut(spring(stiffness = Spring.StiffnessMediumLow)))
+                    fadeIn(com.fadghost.notesapp.ui.theme.MotionTokens.mediumFinite(reduceMotion))
+                        .togetherWith(fadeOut(com.fadghost.notesapp.ui.theme.MotionTokens.mediumFinite(reduceMotion)))
                 },
                 label = "tab"
             ) { tab ->
@@ -149,6 +176,8 @@ fun AppShell(
                     "New note" -> editorNoteId = 0L
                     // Wire "New diary entry" to the Diary tab (today's entry is front-and-centre).
                     "New diary entry" -> { selectedTab = NavTab.DIARY; editorNoteId = null }
+                    // Wire "Voice ramble" to the spring-up recording sheet (PLAN.md §5).
+                    "Voice ramble" -> showVoiceCapture = true
                     // Wire "Quick reminder" to the minimal Aura dialog (PLAN.md §4/§8).
                     "Quick reminder" -> showQuickReminder = true
                 }
@@ -161,11 +190,22 @@ fun AppShell(
             onCreated = { showQuickReminder = false }
         )
 
+        // Voice ramble from the capture sheet → transcribe into a fresh note, then open it.
+        com.fadghost.notesapp.ui.voice.VoiceRecordingSheet(
+            visible = showVoiceCapture,
+            targetNoteId = 0L,
+            appendMode = false,
+            onDismiss = { showVoiceCapture = false },
+            onNewNoteReady = { id -> showVoiceCapture = false; editorNoteId = id }
+        )
+
         // Editor overlay above the whole shell.
         AnimatedVisibility(
             visible = editorNoteId != null,
-            enter = slideInVertically(spring(stiffness = Spring.StiffnessLow)) { it } + fadeIn(tween(120)),
-            exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(140)),
+            enter = slideInVertically(com.fadghost.notesapp.ui.theme.MotionTokens.mediumFinite(reduceMotion)) { it } +
+                fadeIn(com.fadghost.notesapp.ui.theme.MotionTokens.fastFinite(reduceMotion)),
+            exit = slideOutVertically(com.fadghost.notesapp.ui.theme.MotionTokens.mediumFinite(reduceMotion)) { it } +
+                fadeOut(com.fadghost.notesapp.ui.theme.MotionTokens.fastFinite(reduceMotion)),
             modifier = Modifier.fillMaxSize()
         ) {
             val id = editorNoteId

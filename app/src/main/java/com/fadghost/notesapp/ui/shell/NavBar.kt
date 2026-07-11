@@ -30,7 +30,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.fadghost.notesapp.ui.components.rememberAuraHaptics
 import com.fadghost.notesapp.ui.theme.Aura
+import com.fadghost.notesapp.ui.theme.LocalReduceMotion
+import com.fadghost.notesapp.ui.theme.MotionTokens
 
 /** Custom translucent floating pill nav bar (PLAN.md §4). No Material components. */
 @Composable
@@ -41,6 +44,7 @@ fun AuraNavBar(
     modifier: Modifier = Modifier
 ) {
     val tokens = Aura.tokens
+    val haptics = rememberAuraHaptics()
     Row(
         modifier = modifier
             .height(64.dp)
@@ -55,11 +59,14 @@ fun AuraNavBar(
             TabItem(
                 tab = tab,
                 selected = tab == selected,
-                onClick = { onSelect(tab) }
+                onClick = {
+                    if (tab != selected) haptics.tick()
+                    onSelect(tab)
+                }
             )
         }
         Spacer(Modifier.width(4.dp))
-        CaptureButton(onClick = onCapture)
+        CaptureButton(onClick = { haptics.confirm(); onCapture() })
     }
 }
 
@@ -70,7 +77,8 @@ private fun TabItem(
     onClick: () -> Unit
 ) {
     val tokens = Aura.tokens
-    val bouncy = spring<Float>(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+    val reduceMotion = LocalReduceMotion.current
+    val bouncy = MotionTokens.bouncy<Float>(reduceMotion)
     val highlight by animateFloatAsState(if (selected) 1f else 0f, bouncy, label = "highlight")
     val scale by animateFloatAsState(if (selected) 1.18f else 1f, bouncy, label = "scale")
     val iconColor = lerpColor(tokens.colors.textSecondary, tokens.colors.accent, highlight)

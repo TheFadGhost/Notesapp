@@ -69,7 +69,9 @@ fun EditorScreen(
     restoreDraft: com.fadghost.notesapp.data.prefs.DraftSnapshot? = null,
     onOpenAiSettings: () -> Unit = {},
     viewModel: EditorViewModel = hiltViewModel(),
-    aiViewModel: com.fadghost.notesapp.ui.ai.EditorAiViewModel = hiltViewModel()
+    aiViewModel: com.fadghost.notesapp.ui.ai.EditorAiViewModel = hiltViewModel(),
+    audioViewModel: com.fadghost.notesapp.ui.voice.EditorAudioViewModel = hiltViewModel(),
+    voiceViewModel: com.fadghost.notesapp.ui.voice.VoiceRecordViewModel = hiltViewModel()
 ) {
     val tokens = Aura.tokens
     val state by viewModel.state.collectAsState()
@@ -84,9 +86,16 @@ fun EditorScreen(
     val cleanupState by aiViewModel.cleanup.collectAsState()
     val extractState by aiViewModel.extract.collectAsState()
     val aiSnackbar by aiViewModel.snackbar.collectAsState()
+    val autoCleanTranscript by aiViewModel.autoCleanTranscript.collectAsState()
     val queuedResult by remember(state.noteId) { aiViewModel.pendingQueuedCleanup(state.noteId) }.collectAsState()
 
+    val audioChips by audioViewModel.chips.collectAsState()
+    var showVoiceSheet by remember { mutableStateOf(false) }
+    var voiceTargetNoteId by remember { mutableStateOf(0L) }
+    var openPlayer by remember { mutableStateOf<com.fadghost.notesapp.data.db.entity.AudioAttachment?>(null) }
+
     LaunchedEffect(noteId) { viewModel.open(noteId, restoreDraft) }
+    LaunchedEffect(state.noteId) { audioViewModel.bind(state.noteId) }
 
     var titleValue by remember { mutableStateOf(TextFieldValue("")) }
     var bodyValue by remember { mutableStateOf(TextFieldValue("")) }
@@ -123,6 +132,29 @@ fun EditorScreen(
         else showNoKey = true
     }
 
+    // Voice ramble appended to the open note (PLAN.md §5 — editor toolbar mic).
+    fun onVoice() {
+        if (!hasKey) { showNoKey = true; return }
+        focus.clearFocus()
+        viewModel.ensureSaved { id -> voiceTargetNoteId = id; showVoiceSheet = true }
+    }
+
+    // Insert the finished transcript at the caret, then record its audio attachment
+    // anchored at the transcript line start (the chip's home).
+    fun insertTranscript(transcript: String) {
+        val existing = bodyValue.text
+        val caret = bodyValue.selection.end.coerceIn(0, existing.length)
+        val prefix = if (caret > 0 && existing[caret - 1] != '\n') "\n" else ""
+        val insert = prefix + transcript
+        val newText = existing.substring(0, caret) + insert + existing.substring(caret)
+        val tStart = caret + prefix.length
+        val tEnd = tStart + transcript.length
+        applyBody(TextFieldValue(newText, TextRange(tEnd)), UndoStack.CoalesceKey.BOUNDARY)
+        voiceViewModel.commitEditorAttachment(tStart, tEnd)
+        // Optional auto clean-up runs the existing M2 flow (PLAN.md §5 toggle).
+        if (autoCleanTranscript) aiViewModel.startCleanup(state.noteId, newText)
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -149,6 +181,7 @@ fun EditorScreen(
                 Spacer(Modifier.width(4.dp))
                 IconAction(Glyph.SPARKLE, tint = tokens.colors.accent) { onCleanup() }
                 IconAction(Glyph.CALENDAR, tint = tokens.colors.accent) { onExtract() }
+                MicAction(tint = tokens.colors.accent) { onVoice() }
                 Spacer(Modifier.weight(1f))
                 PillAction(
                     glyph = Glyph.FOLDER,
@@ -250,6 +283,13 @@ fun EditorScreen(
                         }
                     }
                 )
+                // Circular audio chips at each transcript line start (PLAN.md §2.3).
+                com.fadghost.notesapp.ui.voice.AudioChipOverlay(
+                    attachments = audioChips,
+                    layout = bodyLayout,
+                    textLength = bodyValue.text.length,
+                    onOpen = { openPlayer = it }
+                )
             }
         }
 
@@ -347,6 +387,58 @@ fun EditorScreen(
             onOpenSettings = { showNoKey = false; focus.clearFocus(); viewModel.close(); onOpenAiSettings() },
             onDismiss = { showNoKey = false }
         )
+
+        // Voice ramble → append transcript at caret (PLAN.md §5).
+        com.fadghost.notesapp.ui.voice.VoiceRecordingSheet(
+            visible = showVoiceSheet,
+            targetNoteId = voiceTargetNoteId,
+            appendMode = true,
+            onDismiss = { showVoiceSheet = false },
+            onTranscriptReady = { transcript -> insertTranscript(transcript) },
+            viewModel = voiceViewModel
+        )
+
+        // Tap an audio chip → Aura popover player (PLAN.md §2.3).
+        com.fadghost.notesapp.ui.voice.AudioPlayerPopover(
+            attachment = openPlayer,
+            noteBytes = openPlayer?.let { audioViewModel.noteBytes(it.noteId) } ?: 0L,
+            onDelete = { id -> audioViewModel.deleteAttachment(id); openPlayer = null },
+            onDismiss = { openPlayer = null }
+        )
+    }
+}
+
+@Composable
+private fun MicAction(tint: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+    val tokens = Aura.tokens
+    Box(
+        Modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(tokens.radii.pill))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        // Small mic glyph drawn inline (no Material) — capsule + stand.
+        androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
+            val s = size.minDimension
+            val st = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = s * 0.08f,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round
+            )
+            drawRoundRect(
+                color = tint,
+                topLeft = androidx.compose.ui.geometry.Offset(s * 0.38f, s * 0.22f),
+                size = androidx.compose.ui.geometry.Size(s * 0.24f, s * 0.36f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(s * 0.12f, s * 0.12f),
+                style = st
+            )
+            drawLine(tint, androidx.compose.ui.geometry.Offset(s * 0.5f, s * 0.62f), androidx.compose.ui.geometry.Offset(s * 0.5f, s * 0.78f), st.width, st.cap)
+            drawLine(tint, androidx.compose.ui.geometry.Offset(s * 0.36f, s * 0.78f), androidx.compose.ui.geometry.Offset(s * 0.64f, s * 0.78f), st.width, st.cap)
+        }
     }
 }
 

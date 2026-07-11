@@ -142,6 +142,42 @@ class OpenRouterClient(
         StructuredResult(content, resp.usage)
     }
 
+    // --- Transcription (STT, multipart upload) ----------------------------------
+
+    /**
+     * Transcribe an audio [file] via `POST /audio/transcriptions` (PLAN.md §5 —
+     * multipart upload, `language=en`, configured STT model). Retries on 429/5xx with
+     * backoff; failures surface as typed [OpenRouterError]; cancellation unwinds the
+     * upload. The key is only ever a bearer header.
+     */
+    suspend fun transcribe(
+        apiKey: String,
+        file: java.io.File,
+        model: String,
+        language: String = "en"
+    ): TranscriptionResult =
+        transcribe(apiKey, file.readBytes(), file.name, model, language)
+
+    /** Byte-source overload (used by the offline queue worker and unit tests). */
+    suspend fun transcribe(
+        apiKey: String,
+        audioBytes: ByteArray,
+        filename: String,
+        model: String,
+        language: String = "en"
+    ): TranscriptionResult = withRetry {
+        val parts = TranscriptionForm.parts(model, audioBytes, filename, language)
+        val resp = http.preparePost("${config.baseUrl}/audio/transcriptions") {
+            authHeaders(apiKey)
+            setBody(io.ktor.client.request.forms.MultiPartFormDataContent(parts))
+        }.execute { r ->
+            if (!r.status.isSuccess()) throw mapError(r, model)
+            runCatching { r.body<TranscriptionResponse>() }
+                .getOrElse { throw OpenRouterError.Parse(it.message) }
+        }
+        TranscriptionResult(resp.text, resp.usage)
+    }
+
     // --- Plumbing ---------------------------------------------------------------
 
     private fun io.ktor.client.request.HttpRequestBuilder.authHeaders(apiKey: String) {

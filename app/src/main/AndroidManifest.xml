@@ -8,6 +8,9 @@
     <!-- Diary biometric/device-credential gate (PLAN.md §7 / §12 — UI gate only). -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
+    <!-- Voice ramble recording (PLAN.md §5 — MediaRecorder → AAC/M4A). Runtime-requested. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <!-- Calendar / reminders (PLAN.md §8). USE_EXACT_ALARM is auto-granted for this
          sideloaded app (Android 13+); SCHEDULE_EXACT_ALARM covers 12/12L. -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
@@ -36,7 +39,38 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Share text into a new note (PLAN.md §6). -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!-- Selected-text context action → new note (PLAN.md §6). -->
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!-- Static app-icon shortcuts (PLAN.md §6). -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- Quick-settings "New note" tile (PLAN.md §6). -->
+        <service
+            android:name=".ui.capture.NewNoteTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_launcher_foreground"
+            android:label="@string/tile_new_note"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
 
         <!-- Reminder pipeline (PLAN.md §8). Not exported: only our own alarms and
              notification actions trigger these. -->

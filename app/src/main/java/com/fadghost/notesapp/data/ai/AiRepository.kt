@@ -51,6 +51,9 @@ class AiRepository @Inject constructor(
     val hasKey: Flow<Boolean> = keyStore.hasKey
     val textModel: Flow<String> = prefs.textModel
     val sttModel: Flow<String> = prefs.sttModel
+
+    /** Voice transcript post-processing toggle (PLAN.md §5): verbatim vs auto clean-up. */
+    val autoCleanTranscript: Flow<Boolean> = prefs.autoCleanTranscript
     val favorites: Flow<Set<String>> = prefs.favorites
     val recents: Flow<List<String>> = prefs.recents
     val cachedModels: Flow<List<CachedModel>> = modelDao.observeAll()
@@ -91,6 +94,7 @@ class AiRepository @Inject constructor(
     suspend fun setTextModel(id: String) = prefs.setTextModel(id)
     suspend fun setSttModel(id: String) = prefs.setSttModel(id)
     suspend fun toggleFavorite(id: String) = prefs.toggleFavorite(id)
+    suspend fun setAutoCleanTranscript(enabled: Boolean) = prefs.setAutoCleanTranscript(enabled)
 
     // --- Clean-up (streaming, map-reduce for long notes) ------------------------
 

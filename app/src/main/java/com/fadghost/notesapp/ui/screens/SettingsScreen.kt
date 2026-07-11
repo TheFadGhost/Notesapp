@@ -55,20 +55,7 @@ fun SettingsScreen(
         BasicHeader("Settings")
         Spacer(Modifier.height(20.dp))
 
-        SectionCard(title = "Appearance") {
-            BasicRowLabel("Theme")
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ThemeMode.entries.forEach { mode ->
-                    ThemeChip(
-                        label = mode.pretty(),
-                        selected = mode == currentMode,
-                        onClick = { onSelectMode(mode) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
+        com.fadghost.notesapp.ui.settings.AppearanceSettingsSection()
 
         Spacer(Modifier.height(16.dp))
         BackupSection()
@@ -78,6 +65,9 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(16.dp))
         com.fadghost.notesapp.ui.settings.AiSettingsSection()
+
+        Spacer(Modifier.height(16.dp))
+        com.fadghost.notesapp.ui.voice.VoiceStorageSection()
 
         Spacer(Modifier.height(96.dp)) // clear the floating nav bar
     }
@@ -147,12 +137,6 @@ private fun ActionRow(title: String, subtitle: String, onClick: () -> Unit) {
             BasicText(subtitle, style = AuraType.label.copy(color = tokens.colors.textSecondary))
         }
     }
-}
-
-private fun ThemeMode.pretty(): String = when (this) {
-    ThemeMode.LIGHT -> "Light"
-    ThemeMode.DARK -> "Dark"
-    ThemeMode.SYSTEM -> "System"
 }
 
 @Composable

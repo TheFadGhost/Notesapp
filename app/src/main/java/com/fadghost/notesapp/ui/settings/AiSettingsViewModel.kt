@@ -33,6 +33,7 @@ class AiSettingsViewModel @Inject constructor(
     val recents: StateFlow<List<String>> = repo.recents.state(emptyList())
     val monthTotal: StateFlow<Double> = repo.observeMonthTotal(now).state(0.0)
     val lastCall = repo.lastCall.state(null)
+    val autoCleanTranscript: StateFlow<Boolean> = repo.autoCleanTranscript.state(false)
 
     private val _status = MutableStateFlow<String?>(null)
     val status: StateFlow<String?> = _status.asStateFlow()
@@ -87,6 +88,7 @@ class AiSettingsViewModel @Inject constructor(
     fun setTextModel(id: String) { if (id.isNotBlank()) viewModelScope.launch { repo.setTextModel(id.trim()) } }
     fun setSttModel(id: String) { if (id.isNotBlank()) viewModelScope.launch { repo.setSttModel(id.trim()) } }
     fun toggleFavorite(id: String) { viewModelScope.launch { repo.toggleFavorite(id) } }
+    fun setAutoCleanTranscript(enabled: Boolean) { viewModelScope.launch { repo.setAutoCleanTranscript(enabled) } }
 
     private fun friendly(e: Throwable): String = when (e) {
         is OpenRouterError.InvalidKey -> "Key rejected"

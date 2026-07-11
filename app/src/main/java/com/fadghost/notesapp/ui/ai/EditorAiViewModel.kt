@@ -72,6 +72,10 @@ class EditorAiViewModel @Inject constructor(
     val hasKey: StateFlow<Boolean> =
         repo.hasKey.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
+    /** Whether transcripts should auto-run Clean-up (PLAN.md §5 voice toggle). */
+    val autoCleanTranscript: StateFlow<Boolean> =
+        repo.autoCleanTranscript.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     private val _cleanup = MutableStateFlow(CleanupState())
     val cleanup: StateFlow<CleanupState> = _cleanup.asStateFlow()
 

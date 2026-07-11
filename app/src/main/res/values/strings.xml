@@ -1,4 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Notesapp</string>
+
+    <!-- Quick-settings tile (PLAN.md §6) -->
+    <string name="tile_new_note">New note</string>
+
+    <!-- App-icon long-press shortcuts (PLAN.md §6) -->
+    <string name="sc_new_note_short">New note</string>
+    <string name="sc_new_note_long">New note</string>
+    <string name="sc_voice_short">Voice ramble</string>
+    <string name="sc_voice_long">Voice ramble</string>
+    <string name="sc_diary_short">Today\'s diary</string>
+    <string name="sc_diary_long">Today\'s diary</string>
 </resources>

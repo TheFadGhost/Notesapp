@@ -12,6 +12,9 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -190,12 +193,22 @@ private fun DayCell(
         isToday -> tokens.colors.accent
         else -> tokens.colors.textPrimary
     }
+    val dayLabel = buildString {
+        append(date.dayOfMonth)
+        if (isToday) append(", today")
+        val count = items.size
+        if (count > 0) append(", $count ${if (count == 1) "item" else "items"}")
+    }
     Box(
         modifier
             .aspectRatio(1f)
             .padding(3.dp)
             .clip(CircleShape)
-            .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClick),
+            .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+            .semantics {
+                selected = isSelected
+                contentDescription = dayLabel
+            },
         contentAlignment = Alignment.Center
     ) {
         // Selected disc / today ring.

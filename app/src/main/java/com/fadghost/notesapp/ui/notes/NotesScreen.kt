@@ -39,8 +39,10 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.fadghost.notesapp.ui.components.AuraEmptyState
 import com.fadghost.notesapp.ui.components.AuraGlyph
 import com.fadghost.notesapp.ui.components.AuraUndoSnackbar
+import com.fadghost.notesapp.ui.components.EmptyGlyph
 import com.fadghost.notesapp.ui.components.Glyph
 import com.fadghost.notesapp.ui.components.PlainChip
 import com.fadghost.notesapp.ui.theme.Aura
@@ -243,22 +245,13 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit) {
 
 @Composable
 private fun EmptyNotes(filter: NoteFilter, searching: Boolean) {
-    val tokens = Aura.tokens
-    val (title, subtitle) = when {
-        searching -> "No matches" to "Try a different search."
-        filter is NoteFilter.Trash -> "Trash is empty" to "Deleted notes rest here for 30 days."
-        filter is NoteFilter.Archived -> "Nothing archived" to "Archived notes stay out of the way."
-        else -> "No notes yet" to "Tap + to capture your first note."
+    val (glyph, title, subtitle) = when {
+        searching -> Triple(EmptyGlyph.SEARCH, "No matches", "Try a different search.")
+        filter is NoteFilter.Trash -> Triple(EmptyGlyph.TRASH, "Trash is empty", "Deleted notes rest here for 30 days.")
+        filter is NoteFilter.Archived -> Triple(EmptyGlyph.ARCHIVE, "Nothing archived", "Archived notes stay out of the way.")
+        else -> Triple(EmptyGlyph.NOTES, "No notes yet", "Tap + to capture your first note.")
     }
-    Column(
-        Modifier.fillMaxSize().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        BasicText(title, style = AuraType.title.copy(color = tokens.colors.textPrimary, textAlign = TextAlign.Center))
-        Spacer(Modifier.height(8.dp))
-        BasicText(subtitle, style = AuraType.body.copy(color = tokens.colors.textSecondary, textAlign = TextAlign.Center))
-    }
+    AuraEmptyState(glyph = glyph, title = title, subtitle = subtitle)
 }
 
 @Composable

@@ -1,6 +1,7 @@
 package com.fadghost.notesapp.data.ai
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -28,6 +29,7 @@ class AiPreferences @Inject constructor(
     private val favoritesKey = stringSetPreferencesKey("favorite_models")
     private val recentsKey = stringPreferencesKey("recent_models") // ordered CSV, newest first
     private val modelsFetchedKey = longPreferencesKey("models_fetched_at")
+    private val autoCleanTranscriptKey = booleanPreferencesKey("auto_clean_transcript")
 
     val textModel: Flow<String> = context.aiSettingsStore.data.map { it[textModelKey] ?: DEFAULT_TEXT_MODEL }
     val sttModel: Flow<String> = context.aiSettingsStore.data.map { it[sttModelKey] ?: DEFAULT_STT_MODEL }
@@ -36,6 +38,13 @@ class AiPreferences @Inject constructor(
         p[recentsKey]?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()
     }
     val modelsFetchedAt: Flow<Long> = context.aiSettingsStore.data.map { it[modelsFetchedKey] ?: 0L }
+
+    /**
+     * Voice transcript post-processing (PLAN.md §5): OFF = keep verbatim, ON = auto
+     * run the M2 Clean-up flow after transcription. Default OFF (verbatim, no key needed).
+     */
+    val autoCleanTranscript: Flow<Boolean> =
+        context.aiSettingsStore.data.map { it[autoCleanTranscriptKey] ?: false }
 
     suspend fun setTextModel(id: String) {
         context.aiSettingsStore.edit { it[textModelKey] = id.trim() }
@@ -56,6 +65,10 @@ class AiPreferences @Inject constructor(
 
     suspend fun markModelsFetched(now: Long) {
         context.aiSettingsStore.edit { it[modelsFetchedKey] = now }
+    }
+
+    suspend fun setAutoCleanTranscript(enabled: Boolean) {
+        context.aiSettingsStore.edit { it[autoCleanTranscriptKey] = enabled }
     }
 
     private suspend fun pushRecent(id: String) {

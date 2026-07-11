@@ -103,6 +103,16 @@ class NotesRepository @Inject constructor(
         attachmentDirFor(id).takeIf { it.exists() }?.deleteRecursively()
     }
 
+    /**
+     * Hard-delete a note only if it is still completely empty. Used to clean up the
+     * placeholder note created up front for a voice ramble the user then discarded
+     * (PLAN.md §5), without ever removing a note the user actually typed into.
+     */
+    suspend fun hardDeleteIfEmpty(id: Long) {
+        val n = noteDao.getById(id) ?: return
+        if (n.title.isBlank() && n.body.isBlank()) hardDelete(id)
+    }
+
     /** Purge trash older than [cutoff]; returns how many notes were removed. */
     suspend fun purgeExpiredTrash(cutoff: Long): Int {
         val ids = noteDao.expiredTrashIds(cutoff)

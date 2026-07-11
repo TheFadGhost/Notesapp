@@ -6,6 +6,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.fadghost.notesapp.data.audio.AudioAttachmentRepository
 import com.fadghost.notesapp.data.repo.NotesRepository
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -28,15 +29,19 @@ class TrashPurgeWorker(
     @InstallIn(SingletonComponent::class)
     interface WorkerEntryPoint {
         fun repository(): NotesRepository
+        fun audioAttachments(): AudioAttachmentRepository
     }
 
     override suspend fun doWork(): Result {
-        val repo = EntryPointAccessors
+        val ep = EntryPointAccessors
             .fromApplication(applicationContext, WorkerEntryPoint::class.java)
-            .repository()
         val cutoff = System.currentTimeMillis() - TRASH_TTL_MS
-        return runCatching { repo.purgeExpiredTrash(cutoff) }
-            .fold(onSuccess = { Result.success() }, onFailure = { Result.retry() })
+        return runCatching {
+            ep.repository().purgeExpiredTrash(cutoff)
+            // Voice attachments whose row was cascade-deleted with a purged note leave
+            // files behind; sweep them (PLAN.md §5/§6 — hook into the orphan pass).
+            ep.audioAttachments().sweepOrphans()
+        }.fold(onSuccess = { Result.success() }, onFailure = { Result.retry() })
     }
 
     companion object {

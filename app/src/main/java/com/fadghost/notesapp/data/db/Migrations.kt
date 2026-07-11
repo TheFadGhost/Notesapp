@@ -64,3 +64,29 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         db.execSQL("ALTER TABLE `Reminder` ADD COLUMN `recurrence` TEXT NOT NULL DEFAULT 'NONE'")
     }
 }
+
+/**
+ * v4 -> v5 (M3 -> M4): adds the voice-note [com.fadghost.notesapp.data.db.entity.AudioAttachment]
+ * table (PLAN.md §5/§2.3 — keep audio attached, one row per ramble). Purely additive;
+ * a FK to `Note` with ON DELETE CASCADE drops rows when a note is hard-deleted, and the
+ * trash-purge orphan sweep removes the files. Column set / index mirror the entity
+ * exactly so Room's post-migration validation passes.
+ */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `AudioAttachment` (" +
+                "`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, " +
+                "`noteId` INTEGER NOT NULL, " +
+                "`filePath` TEXT NOT NULL, " +
+                "`segmentPaths` TEXT NOT NULL, " +
+                "`durationMs` INTEGER NOT NULL, " +
+                "`sizeBytes` INTEGER NOT NULL, " +
+                "`createdAt` INTEGER NOT NULL, " +
+                "`transcriptStart` INTEGER NOT NULL, " +
+                "`transcriptEnd` INTEGER NOT NULL, " +
+                "FOREIGN KEY(`noteId`) REFERENCES `Note`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_AudioAttachment_noteId` ON `AudioAttachment` (`noteId`)")
+    }
+}

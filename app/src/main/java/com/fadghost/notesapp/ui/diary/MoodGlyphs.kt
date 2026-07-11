@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.fadghost.notesapp.ui.theme.Aura
@@ -100,7 +101,7 @@ fun MoodPicker(
             )
             Box(
                 Modifier
-                    .size(glyphSize + 12.dp)
+                    .size(maxOf(glyphSize + 14.dp, 48.dp))
                     .clip(CircleShape)
                     .background(if (isSel) tokens.colors.accent.copy(alpha = 0.16f) else Color.Transparent)
                     .clickable(
@@ -108,7 +109,10 @@ fun MoodPicker(
                         indication = null,
                         onClick = { onSelect(if (isSel) null else mood) }
                     )
-                    .semantics { contentDescription = "Mood: ${mood.label}" },
+                    .semantics {
+                        this.selected = isSel
+                        contentDescription = "Mood: ${mood.label}"
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 MoodGlyph(
@@ -125,5 +129,9 @@ fun MoodPicker(
 @Composable
 fun MoodBadge(mood: Mood, modifier: Modifier = Modifier) {
     val tokens = Aura.tokens
-    MoodGlyph(mood = mood, color = tokens.colors.accent, modifier = modifier)
+    MoodGlyph(
+        mood = mood,
+        color = tokens.colors.accent,
+        modifier = modifier.semantics { contentDescription = "Mood: ${mood.label}" }
+    )
 }

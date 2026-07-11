@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Static app-icon long-press shortcuts (PLAN.md §6). Each fires a distinct custom
+     action that MainActivity.handleDeepLink routes into a CaptureRequest. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new_note"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/sc_new_note_short"
+        android:shortcutLongLabel="@string/sc_new_note_long">
+        <intent
+            android:action="com.fadghost.notesapp.action.NEW_NOTE"
+            android:targetPackage="com.fadghost.notesapp"
+            android:targetClass="com.fadghost.notesapp.MainActivity" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="voice_ramble"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/sc_voice_short"
+        android:shortcutLongLabel="@string/sc_voice_long">
+        <intent
+            android:action="com.fadghost.notesapp.action.VOICE"
+            android:targetPackage="com.fadghost.notesapp"
+            android:targetClass="com.fadghost.notesapp.MainActivity" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="today_diary"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/sc_diary_short"
+        android:shortcutLongLabel="@string/sc_diary_long">
+        <intent
+            android:action="com.fadghost.notesapp.action.TODAY_DIARY"
+            android:targetPackage="com.fadghost.notesapp"
+            android:targetClass="com.fadghost.notesapp.MainActivity" />
+    </shortcut>
+</shortcuts>

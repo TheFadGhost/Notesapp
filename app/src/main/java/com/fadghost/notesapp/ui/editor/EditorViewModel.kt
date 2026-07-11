@@ -187,6 +187,37 @@ class EditorViewModel @Inject constructor(
         return if (id > 0) id else persist()
     }
 
+    /**
+     * Force the note to exist (even if still empty) and hand back its id. Used before
+     * attaching a voice recording to a brand-new note (PLAN.md §5): the transcript
+     * lands via the caret afterward, so we must create the row up front to anchor the
+     * audio attachment.
+     */
+    fun ensureSaved(onReady: (Long) -> Unit) {
+        viewModelScope.launch {
+            var id = _state.value.noteId
+            if (id <= 0) {
+                val now = System.currentTimeMillis()
+                id = repo.saveNote(
+                    Note(
+                        id = 0,
+                        title = curTitle,
+                        body = curBody,
+                        createdAt = createdAt.takeIf { it > 0 } ?: now,
+                        updatedAt = now,
+                        folderId = _state.value.folderId
+                    )
+                )
+                if (id > 0) {
+                    savedState[KEY_ID] = id
+                    noteIdFlow.value = id
+                    _state.value = _state.value.copy(noteId = id)
+                }
+            }
+            if (id > 0) onReady(id)
+        }
+    }
+
     fun toggleTag(tagId: Long) {
         viewModelScope.launch {
             val id = ensurePersisted()

@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.fadghost.notesapp.ui.components.AuraGlyph
 import com.fadghost.notesapp.ui.components.Glyph
+import com.fadghost.notesapp.ui.components.rememberAuraHaptics
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraType
 
@@ -54,6 +56,11 @@ fun CleanupSheet(
     onAccept: () -> Unit
 ) {
     val tokens = Aura.tokens
+    // Success haptic when a clean-up finishes streaming (PLAN.md §10 — AI done).
+    val haptics = rememberAuraHaptics()
+    LaunchedEffect(state.done) {
+        if (state.done && state.after.isNotBlank()) haptics.success()
+    }
     AnimatedVisibility(
         visible = state.active,
         enter = fadeIn(),
