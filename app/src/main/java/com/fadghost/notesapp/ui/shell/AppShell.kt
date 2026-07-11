@@ -63,6 +63,7 @@ fun AppShell(
     // Editor overlay: null == list; value == open note id (0 == new). Survives config change.
     var editorNoteId by rememberSaveable { mutableStateOf<Long?>(null) }
     var restoringDraft by remember { mutableStateOf(false) }
+    var showQuickReminder by remember { mutableStateOf(false) }
 
     val recoverableDraft by draftRecovery.draft.collectAsState()
 
@@ -120,9 +121,19 @@ fun AppShell(
             visible = captureVisible,
             onDismiss = { captureVisible = false },
             onAction = { action ->
-                // Wire "New note" to a blank editor with the keyboard up (PLAN.md §6.9).
-                if (action.label == "New note") editorNoteId = 0L
+                when (action.label) {
+                    // Wire "New note" to a blank editor with the keyboard up (PLAN.md §6.9).
+                    "New note" -> editorNoteId = 0L
+                    // Wire "Quick reminder" to the minimal Aura dialog (PLAN.md §4/§8).
+                    "Quick reminder" -> showQuickReminder = true
+                }
             }
+        )
+
+        com.fadghost.notesapp.ui.reminder.QuickReminderDialog(
+            visible = showQuickReminder,
+            onDismiss = { showQuickReminder = false },
+            onCreated = { showQuickReminder = false }
         )
 
         // Editor overlay above the whole shell.
@@ -137,7 +148,10 @@ fun AppShell(
                 EditorScreen(
                     noteId = id,
                     restoreDraft = if (restoringDraft) recoverableDraft else null,
-                    onExit = { editorNoteId = null; restoringDraft = false }
+                    onExit = { editorNoteId = null; restoringDraft = false },
+                    onOpenAiSettings = {
+                        editorNoteId = null; restoringDraft = false; selectedTab = NavTab.SETTINGS
+                    }
                 )
             }
         }

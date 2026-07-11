@@ -74,13 +74,9 @@ fun SettingsScreen(
         BackupSection()
 
         Spacer(Modifier.height(16.dp))
-        SectionCard(title = "AI (built in M2)") {
-            PlaceholderRow("OpenRouter API key", "Add later — AI stays optional")
-            DividerLine()
-            PlaceholderRow("Text model", "deepseek/deepseek-v4-flash")
-            DividerLine()
-            PlaceholderRow("Speech-to-text model", "qwen/qwen3-asr-flash-2026-02-10")
-        }
+        com.fadghost.notesapp.ui.settings.AiSettingsSection()
+
+        Spacer(Modifier.height(96.dp)) // clear the floating nav bar
     }
 }
 

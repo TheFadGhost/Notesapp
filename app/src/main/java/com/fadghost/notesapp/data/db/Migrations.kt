@@ -14,3 +14,40 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         NotesFts.migrateFromExternalContent(db)
     }
 }
+
+/**
+ * v2 -> v3 (M1 -> M2): adds the AI layer's two new tables — per-call cost rows
+ * (PLAN.md §5/§7) and the cached OpenRouter model list (PLAN.md §5). Purely
+ * additive; no existing table or the FTS index is touched. Column definitions
+ * mirror the [com.fadghost.notesapp.data.ai.cost.AiCallCost] and
+ * [com.fadghost.notesapp.data.ai.model.CachedModel] entities exactly so Room's
+ * post-migration schema validation passes.
+ */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `AiCallCost` (" +
+                "`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, " +
+                "`createdAt` INTEGER NOT NULL, " +
+                "`feature` TEXT NOT NULL, " +
+                "`model` TEXT NOT NULL, " +
+                "`promptTokens` INTEGER NOT NULL, " +
+                "`completionTokens` INTEGER NOT NULL, " +
+                "`totalTokens` INTEGER NOT NULL, " +
+                "`costUsd` REAL NOT NULL, " +
+                "`noteId` INTEGER)"
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_AiCallCost_createdAt` ON `AiCallCost` (`createdAt`)")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `CachedModel` (" +
+                "`id` TEXT NOT NULL, " +
+                "`name` TEXT NOT NULL, " +
+                "`contextLength` INTEGER NOT NULL, " +
+                "`promptPrice` TEXT, " +
+                "`completionPrice` TEXT, " +
+                "`inputModalities` TEXT NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`id`))"
+        )
+    }
+}

@@ -4,6 +4,10 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.fadghost.notesapp.data.ai.cost.AiCallCost
+import com.fadghost.notesapp.data.ai.model.CachedModel
+import com.fadghost.notesapp.data.db.dao.AiCostDao
+import com.fadghost.notesapp.data.db.dao.CachedModelDao
 import com.fadghost.notesapp.data.db.dao.DiaryDao
 import com.fadghost.notesapp.data.db.dao.EventDao
 import com.fadghost.notesapp.data.db.dao.FolderDao
@@ -26,9 +30,11 @@ import com.fadghost.notesapp.data.db.entity.Tag
         NoteTagCrossRef::class,
         DiaryEntry::class,
         Event::class,
-        Reminder::class
+        Reminder::class,
+        AiCallCost::class,
+        CachedModel::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -39,6 +45,8 @@ abstract class NotesDatabase : RoomDatabase() {
     abstract fun diaryDao(): DiaryDao
     abstract fun eventDao(): EventDao
     abstract fun reminderDao(): ReminderDao
+    abstract fun aiCostDao(): AiCostDao
+    abstract fun cachedModelDao(): CachedModelDao
 
     companion object {
         const val NAME = "notes.db"

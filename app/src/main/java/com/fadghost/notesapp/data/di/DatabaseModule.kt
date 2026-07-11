@@ -3,7 +3,10 @@ package com.fadghost.notesapp.data.di
 import android.content.Context
 import androidx.room.Room
 import com.fadghost.notesapp.data.db.MIGRATION_1_2
+import com.fadghost.notesapp.data.db.MIGRATION_2_3
 import com.fadghost.notesapp.data.db.NotesDatabase
+import com.fadghost.notesapp.data.db.dao.AiCostDao
+import com.fadghost.notesapp.data.db.dao.CachedModelDao
 import com.fadghost.notesapp.data.db.dao.DiaryDao
 import com.fadghost.notesapp.data.db.dao.EventDao
 import com.fadghost.notesapp.data.db.dao.FolderDao
@@ -26,7 +29,7 @@ object DatabaseModule {
     fun provideDatabase(@ApplicationContext context: Context): NotesDatabase =
         Room.databaseBuilder(context, NotesDatabase::class.java, NotesDatabase.NAME)
             .addCallback(NotesDatabase.CALLBACK)
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
 
     @Provides
@@ -46,4 +49,10 @@ object DatabaseModule {
 
     @Provides
     fun provideReminderDao(db: NotesDatabase): ReminderDao = db.reminderDao()
+
+    @Provides
+    fun provideAiCostDao(db: NotesDatabase): AiCostDao = db.aiCostDao()
+
+    @Provides
+    fun provideCachedModelDao(db: NotesDatabase): CachedModelDao = db.cachedModelDao()
 }

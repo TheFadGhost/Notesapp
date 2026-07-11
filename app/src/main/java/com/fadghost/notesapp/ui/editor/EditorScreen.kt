@@ -67,7 +67,9 @@ fun EditorScreen(
     noteId: Long,
     onExit: () -> Unit,
     restoreDraft: com.fadghost.notesapp.data.prefs.DraftSnapshot? = null,
-    viewModel: EditorViewModel = hiltViewModel()
+    onOpenAiSettings: () -> Unit = {},
+    viewModel: EditorViewModel = hiltViewModel(),
+    aiViewModel: com.fadghost.notesapp.ui.ai.EditorAiViewModel = hiltViewModel()
 ) {
     val tokens = Aura.tokens
     val state by viewModel.state.collectAsState()
@@ -78,12 +80,19 @@ fun EditorScreen(
     val focus = LocalFocusManager.current
     val bodyFocus = remember { FocusRequester() }
 
+    val hasKey by aiViewModel.hasKey.collectAsState()
+    val cleanupState by aiViewModel.cleanup.collectAsState()
+    val extractState by aiViewModel.extract.collectAsState()
+    val aiSnackbar by aiViewModel.snackbar.collectAsState()
+    val queuedResult by remember(state.noteId) { aiViewModel.pendingQueuedCleanup(state.noteId) }.collectAsState()
+
     LaunchedEffect(noteId) { viewModel.open(noteId, restoreDraft) }
 
     var titleValue by remember { mutableStateOf(TextFieldValue("")) }
     var bodyValue by remember { mutableStateOf(TextFieldValue("")) }
     var initializedFor by remember { mutableStateOf(-1L) }
     var showPicker by remember { mutableStateOf(false) }
+    var showNoKey by remember { mutableStateOf(false) }
     var bodyLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
 
     // Seed the fields once the VM has loaded (also runs after process death).
@@ -102,6 +111,16 @@ fun EditorScreen(
     fun applyBody(newValue: TextFieldValue, coalesce: UndoStack.CoalesceKey) {
         bodyValue = newValue
         viewModel.onBodyChanged(newValue.text, coalesce)
+    }
+
+    fun onCleanup() {
+        if (hasKey) { focus.clearFocus(); aiViewModel.startCleanup(state.noteId, bodyValue.text) }
+        else showNoKey = true
+    }
+
+    fun onExtract() {
+        if (hasKey) { focus.clearFocus(); aiViewModel.startExtract(state.noteId, bodyValue.text) }
+        else showNoKey = true
     }
 
     Box(
@@ -127,6 +146,9 @@ fun EditorScreen(
                     viewModel.close()
                     onExit()
                 }
+                Spacer(Modifier.width(4.dp))
+                IconAction(Glyph.SPARKLE, tint = tokens.colors.accent) { onCleanup() }
+                IconAction(Glyph.CALENDAR, tint = tokens.colors.accent) { onExtract() }
                 Spacer(Modifier.weight(1f))
                 PillAction(
                     glyph = Glyph.FOLDER,
@@ -263,6 +285,115 @@ fun EditorScreen(
                 onDismiss = { showPicker = false }
             )
         }
+
+        // Queued Clean-up that finished while offline / editor closed (PLAN.md §5).
+        queuedResult?.let { cleaned ->
+            if (!cleanupState.active) {
+                QueuedResultBanner(
+                    onApply = {
+                        applyBody(TextFieldValue(cleaned, TextRange(cleaned.length)), UndoStack.CoalesceKey.BOUNDARY)
+                        aiViewModel.applyQueuedResult(state.noteId)
+                    },
+                    onDismiss = { aiViewModel.dismissQueuedResult(state.noteId) },
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = 56.dp)
+                )
+            }
+        }
+
+        // ✨ Clean-up before/after sheet.
+        com.fadghost.notesapp.ui.ai.CleanupSheet(
+            state = cleanupState,
+            onSegment = aiViewModel::setSegment,
+            onCancel = aiViewModel::cancelCleanup,
+            onRegenerate = aiViewModel::regenerateCleanup,
+            onKeepOriginal = aiViewModel::dismissCleanup,
+            onAccept = {
+                aiViewModel.acceptCleanup()?.let {
+                    applyBody(TextFieldValue(it, TextRange(it.length)), UndoStack.CoalesceKey.BOUNDARY)
+                }
+            }
+        )
+
+        // 📅 Extract confirmation cards sheet.
+        com.fadghost.notesapp.ui.ai.ExtractSheet(
+            state = extractState,
+            onAccept = aiViewModel::acceptCard,
+            onReject = aiViewModel::rejectCard,
+            onBeginEdit = aiViewModel::beginEdit,
+            onCancelEdit = aiViewModel::cancelEdit,
+            onApplyEdit = aiViewModel::applyEdit,
+            onRevise = aiViewModel::reviseCard,
+            onAcceptAll = aiViewModel::acceptAll,
+            onDismiss = aiViewModel::dismissExtract
+        )
+
+        // Batch "Undo all" snackbar for accepted actions.
+        com.fadghost.notesapp.ui.components.AuraUndoSnackbar(
+            message = aiSnackbar,
+            onAction = aiViewModel::undoAll,
+            onDismiss = aiViewModel::dismissSnackbar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 12.dp)
+        )
+
+        // No-key popover with a deep-link to Settings (PLAN.md §5 — never dead buttons).
+        com.fadghost.notesapp.ui.ai.NoKeyPopover(
+            visible = showNoKey,
+            onOpenSettings = { showNoKey = false; focus.clearFocus(); viewModel.close(); onOpenAiSettings() },
+            onDismiss = { showNoKey = false }
+        )
+    }
+}
+
+@Composable
+private fun QueuedResultBanner(
+    onApply: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val tokens = Aura.tokens
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(tokens.radii.md))
+            .background(tokens.colors.surfaceTranslucent)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            BasicText("AI cleanup ready", style = AuraType.body.copy(color = tokens.colors.textPrimary))
+            BasicText("Ran while you were offline", style = AuraType.label.copy(color = tokens.colors.textSecondary))
+        }
+        BasicText(
+            "Apply",
+            style = AuraType.label.copy(color = tokens.colors.accent),
+            modifier = Modifier
+                .clip(RoundedCornerShape(tokens.radii.pill))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onApply
+                )
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+        )
+        BasicText(
+            "Dismiss",
+            style = AuraType.label.copy(color = tokens.colors.textSecondary),
+            modifier = Modifier
+                .clip(RoundedCornerShape(tokens.radii.pill))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                )
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+        )
     }
 }
 
@@ -319,7 +450,11 @@ private fun checkboxRects(text: String, layout: TextLayoutResult): List<Pair<Int
 }
 
 @Composable
-private fun IconAction(glyph: Glyph, onClick: () -> Unit) {
+private fun IconAction(
+    glyph: Glyph,
+    tint: androidx.compose.ui.graphics.Color? = null,
+    onClick: () -> Unit
+) {
     val tokens = Aura.tokens
     Box(
         Modifier
@@ -332,7 +467,7 @@ private fun IconAction(glyph: Glyph, onClick: () -> Unit) {
             ),
         contentAlignment = Alignment.Center
     ) {
-        AuraGlyph(glyph, tokens.colors.textPrimary, Modifier.size(22.dp))
+        AuraGlyph(glyph, tint ?: tokens.colors.textPrimary, Modifier.size(22.dp))
     }
 }
 

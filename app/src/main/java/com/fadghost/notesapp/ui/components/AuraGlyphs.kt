@@ -20,7 +20,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 enum class Glyph {
     PIN, ARCHIVE, TRASH, DUPLICATE, FOLDER, TAG, SEARCH, CLOSE, GRID, LIST,
     BOLD, ITALIC, HEADING, CHECKLIST, BULLET, UNDO, REDO, RESTORE, CHECK, PLUS,
-    CHEVRON, BACK, MORE
+    CHEVRON, BACK, MORE, SPARKLE, CALENDAR, CLOCK, CHEVRON_UP, CHEVRON_DOWN
 }
 
 @Composable
@@ -52,7 +52,54 @@ fun AuraGlyph(glyph: Glyph, color: Color, modifier: Modifier = Modifier) {
             Glyph.CHEVRON -> drawChevron(color, s, st, back = false)
             Glyph.BACK -> drawChevron(color, s, st, back = true)
             Glyph.MORE -> drawMore(color, s)
+            Glyph.SPARKLE -> drawSparkle(color, s, st)
+            Glyph.CALENDAR -> drawCalendar(color, s, st)
+            Glyph.CLOCK -> drawClock(color, s, st)
+            Glyph.CHEVRON_UP -> drawChevronVert(color, s, st, up = true)
+            Glyph.CHEVRON_DOWN -> drawChevronVert(color, s, st, up = false)
         }
+    }
+}
+
+private fun DrawScope.drawSparkle(c: Color, s: Float, st: Stroke) {
+    // Four-point sparkle: a big star plus a small one.
+    fun star(cx: Float, cy: Float, r: Float) {
+        val p = Path().apply {
+            moveTo(cx, cy - r)
+            cubicTo(cx + r * 0.18f, cy - r * 0.18f, cx + r * 0.18f, cy - r * 0.18f, cx + r, cy)
+            cubicTo(cx + r * 0.18f, cy + r * 0.18f, cx + r * 0.18f, cy + r * 0.18f, cx, cy + r)
+            cubicTo(cx - r * 0.18f, cy + r * 0.18f, cx - r * 0.18f, cy + r * 0.18f, cx - r, cy)
+            cubicTo(cx - r * 0.18f, cy - r * 0.18f, cx - r * 0.18f, cy - r * 0.18f, cx, cy - r)
+            close()
+        }
+        drawPath(p, c, style = st)
+    }
+    star(s * 0.44f, s * 0.44f, s * 0.22f)
+    star(s * 0.72f, s * 0.70f, s * 0.10f)
+}
+
+private fun DrawScope.drawCalendar(c: Color, s: Float, st: Stroke) {
+    drawRect(c, Offset(s * 0.24f, s * 0.28f), Size(s * 0.52f, s * 0.48f), style = st)
+    line(c, s * 0.24f, s * 0.40f, s * 0.76f, s * 0.40f, st)
+    line(c, s * 0.36f, s * 0.24f, s * 0.36f, s * 0.32f, st)
+    line(c, s * 0.64f, s * 0.24f, s * 0.64f, s * 0.32f, st)
+    drawCircle(c, s * 0.03f, Offset(s * 0.40f, s * 0.54f))
+    drawCircle(c, s * 0.03f, Offset(s * 0.56f, s * 0.54f))
+}
+
+private fun DrawScope.drawClock(c: Color, s: Float, st: Stroke) {
+    drawCircle(c, s * 0.26f, Offset(s * 0.5f, s * 0.5f), style = st)
+    line(c, s * 0.5f, s * 0.5f, s * 0.5f, s * 0.32f, st)
+    line(c, s * 0.5f, s * 0.5f, s * 0.64f, s * 0.56f, st)
+}
+
+private fun DrawScope.drawChevronVert(c: Color, s: Float, st: Stroke, up: Boolean) {
+    if (up) {
+        line(c, s * 0.34f, s * 0.58f, s * 0.5f, s * 0.42f, st)
+        line(c, s * 0.5f, s * 0.42f, s * 0.66f, s * 0.58f, st)
+    } else {
+        line(c, s * 0.34f, s * 0.42f, s * 0.5f, s * 0.58f, st)
+        line(c, s * 0.5f, s * 0.58f, s * 0.66f, s * 0.42f, st)
     }
 }
 
