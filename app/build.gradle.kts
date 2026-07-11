@@ -95,6 +95,9 @@ dependencies {
     // Background work (trash auto-purge + AI retry queue, PLAN.md §3/§5)
     implementation(libs.androidx.work.runtime)
 
+    // Diary biometric/device-credential gate (PLAN.md §7)
+    implementation(libs.androidx.biometric)
+
     // OpenRouter networking (Ktor + OkHttp engine, PLAN.md §5)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.okhttp)

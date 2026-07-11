@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.fadghost.notesapp.data.db.MIGRATION_1_2
 import com.fadghost.notesapp.data.db.MIGRATION_2_3
+import com.fadghost.notesapp.data.db.MIGRATION_3_4
 import com.fadghost.notesapp.data.db.NotesDatabase
 import com.fadghost.notesapp.data.db.dao.AiCostDao
 import com.fadghost.notesapp.data.db.dao.CachedModelDao
@@ -29,7 +30,7 @@ object DatabaseModule {
     fun provideDatabase(@ApplicationContext context: Context): NotesDatabase =
         Room.databaseBuilder(context, NotesDatabase::class.java, NotesDatabase.NAME)
             .addCallback(NotesDatabase.CALLBACK)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
 
     @Provides

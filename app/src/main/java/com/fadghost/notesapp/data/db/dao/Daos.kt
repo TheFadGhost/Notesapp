@@ -227,6 +227,12 @@ interface EventDao {
 
     @Query("SELECT * FROM Event ORDER BY startAt")
     fun observeAll(): Flow<List<Event>>
+
+    @Query("SELECT * FROM Event WHERE id = :id")
+    suspend fun getById(id: Long): Event?
+
+    @Query("DELETE FROM Event WHERE id = :id")
+    suspend fun deleteById(id: Long)
 }
 
 @Dao
@@ -242,4 +248,20 @@ interface ReminderDao {
 
     @Query("SELECT * FROM Reminder ORDER BY triggerAt")
     fun observeAll(): Flow<List<Reminder>>
+
+    @Query("SELECT * FROM Reminder WHERE id = :id")
+    suspend fun getById(id: Long): Reminder?
+
+    /** Not-done reminders — used to reschedule every pending alarm after reboot/update. */
+    @Query("SELECT * FROM Reminder WHERE done = 0")
+    suspend fun allPending(): List<Reminder>
+
+    @Query("UPDATE Reminder SET done = :done WHERE id = :id")
+    suspend fun setDone(id: Long, done: Boolean)
+
+    @Query("UPDATE Reminder SET triggerAt = :triggerAt, snoozedUntil = :snoozedUntil WHERE id = :id")
+    suspend fun reschedule(id: Long, triggerAt: Long, snoozedUntil: Long?)
+
+    @Query("DELETE FROM Reminder WHERE id = :id")
+    suspend fun deleteById(id: Long)
 }

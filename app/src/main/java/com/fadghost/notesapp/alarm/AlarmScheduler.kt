@@ -1,0 +1,69 @@
+package com.fadghost.notesapp.alarm
+
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import com.fadghost.notesapp.data.db.dao.ReminderDao
+import com.fadghost.notesapp.data.db.entity.Reminder
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Single abstraction over [AlarmManager] exact alarms (PLAN.md §8 — reminders must
+ * fire at a clock time). Uses [AlarmManager.setExactAndAllowWhileIdle] so Doze
+ * can't defer a reminder. The app declares USE_EXACT_ALARM (auto-granted for this
+ * sideloaded build), but we still guard [AlarmManager.canScheduleExactAlarms] and
+ * fall back to an inexact window rather than crashing on a locked-down OEM.
+ *
+ * Nothing here computes recurrence — the receiver advances the row and calls back
+ * in via [scheduleReminder] with the next occurrence, keeping scheduling and the
+ * DST-safe maths ([com.fadghost.notesapp.calendar.RecurrenceMath]) separate.
+ */
+@Singleton
+class AlarmScheduler @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val reminderDao: ReminderDao
+) {
+    private val alarmManager: AlarmManager =
+        context.getSystemService(AlarmManager::class.java)
+
+    /** (Re)arm the exact alarm for [reminder] at its current [Reminder.triggerAt]. */
+    fun scheduleReminder(reminder: Reminder) {
+        if (reminder.done) return
+        val pi = pendingIntent(reminder.id, create = true) ?: return
+        val at = reminder.triggerAt
+        try {
+            if (canExact()) {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+            } else {
+                // Best-effort fallback: still fires, just not guaranteed to the second.
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+            }
+        } catch (_: SecurityException) {
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+        }
+    }
+
+    fun cancelReminder(reminderId: Long) {
+        pendingIntent(reminderId, create = false)?.let { alarmManager.cancel(it) }
+    }
+
+    /** Rearm every not-done reminder — called after reboot / app update. */
+    suspend fun rescheduleAll() {
+        reminderDao.allPending().forEach { scheduleReminder(it) }
+    }
+
+    fun canExact(): Boolean = alarmManager.canScheduleExactAlarms()
+
+    private fun pendingIntent(reminderId: Long, create: Boolean): PendingIntent? {
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = AlarmReceiver.ACTION_FIRE
+            putExtra(AlarmReceiver.EXTRA_REMINDER_ID, reminderId)
+        }
+        val flags = (if (create) PendingIntent.FLAG_UPDATE_CURRENT else PendingIntent.FLAG_NO_CREATE) or
+            PendingIntent.FLAG_IMMUTABLE
+        return PendingIntent.getBroadcast(context, reminderId.toInt(), intent, flags)
+    }
+}

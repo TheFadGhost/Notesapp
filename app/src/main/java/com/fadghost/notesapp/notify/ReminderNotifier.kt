@@ -1,0 +1,98 @@
+package com.fadghost.notesapp.notify
+
+import android.Manifest
+import android.app.Notification
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import com.fadghost.notesapp.alarm.ReminderActionReceiver
+import com.fadghost.notesapp.data.db.entity.Reminder
+
+/**
+ * Builds and posts the reminder notification with Done / Snooze 10m / Snooze 1h
+ * actions and a content tap that deep-links into the app at the item (PLAN.md §8).
+ * Channel importance HIGH so it heads-up. Respects the POST_NOTIFICATIONS runtime
+ * grant on Android 13+ — if it isn't held we simply don't post (the alarm still
+ * fired and any recurrence was still rescheduled).
+ */
+object ReminderNotifier {
+
+    /** Distinct PendingIntent request-code lanes so per-reminder intents don't collide. */
+    private const val LANE_CONTENT = 0
+    private const val LANE_DONE = 1
+    private const val LANE_SNOOZE_10 = 2
+    private const val LANE_SNOOZE_60 = 3
+    private const val LANES = 4
+
+    fun notify(context: Context, reminder: Reminder) {
+        if (!hasPermission(context)) return
+        NotificationChannels.ensure(context)
+        val mgr = context.getSystemService(NotificationManager::class.java) ?: return
+
+        val id = reminder.id
+        val notification: Notification = NotificationCompat.Builder(context, NotificationChannels.REMINDERS)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle(reminder.title.ifBlank { "Reminder" })
+            .setContentText("Tap to open")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setAutoCancel(true)
+            .setContentIntent(contentIntent(context, id))
+            .addAction(0, "Done", actionIntent(context, id, ReminderActionReceiver.ACTION_DONE, LANE_DONE))
+            .addAction(0, "Snooze 10m", actionIntent(context, id, ReminderActionReceiver.ACTION_SNOOZE_10, LANE_SNOOZE_10))
+            .addAction(0, "Snooze 1h", actionIntent(context, id, ReminderActionReceiver.ACTION_SNOOZE_60, LANE_SNOOZE_60))
+            .build()
+
+        mgr.notify(notificationId(id), notification)
+    }
+
+    fun cancel(context: Context, reminderId: Long) {
+        context.getSystemService(NotificationManager::class.java)?.cancel(notificationId(reminderId))
+    }
+
+    /** Stable, collision-free notification id derived from the row id. */
+    fun notificationId(reminderId: Long): Int = (reminderId % Int.MAX_VALUE).toInt()
+
+    private fun hasPermission(context: Context): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun requestCode(reminderId: Long, lane: Int): Int =
+        (reminderId.toInt() * LANES) + lane
+
+    private fun contentIntent(context: Context, reminderId: Long): PendingIntent {
+        val intent = Intent(context, mainActivityClass(context)).apply {
+            action = Intent.ACTION_VIEW
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_OPEN_CALENDAR, true)
+            putExtra(EXTRA_REMINDER_ID, reminderId)
+        }
+        return PendingIntent.getActivity(
+            context, requestCode(reminderId, LANE_CONTENT), intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun actionIntent(context: Context, reminderId: Long, action: String, lane: Int): PendingIntent {
+        val intent = Intent(context, ReminderActionReceiver::class.java).apply {
+            this.action = action
+            putExtra(EXTRA_REMINDER_ID, reminderId)
+        }
+        return PendingIntent.getBroadcast(
+            context, requestCode(reminderId, lane), intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun mainActivityClass(context: Context): Class<*> =
+        Class.forName("com.fadghost.notesapp.MainActivity")
+
+    const val EXTRA_OPEN_CALENDAR = "open_calendar"
+    const val EXTRA_REMINDER_ID = "reminder_id"
+}

@@ -104,5 +104,7 @@ data class Reminder(
     val triggerAt: Long,
     val timezone: String,
     val done: Boolean = false,
-    val snoozedUntil: Long? = null
+    val snoozedUntil: Long? = null,
+    /** Simple v1 repeat (PLAN.md §8: none/daily/weekly/monthly). Added in schema v4 (M3). */
+    val recurrence: Recurrence = Recurrence.NONE
 )

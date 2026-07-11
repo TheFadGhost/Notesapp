@@ -74,6 +74,9 @@ fun SettingsScreen(
         BackupSection()
 
         Spacer(Modifier.height(16.dp))
+        com.fadghost.notesapp.ui.settings.DiarySettingsSection()
+
+        Spacer(Modifier.height(16.dp))
         com.fadghost.notesapp.ui.settings.AiSettingsSection()
 
         Spacer(Modifier.height(96.dp)) // clear the floating nav bar

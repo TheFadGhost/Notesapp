@@ -51,3 +51,16 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         )
     }
 }
+
+/**
+ * v3 -> v4 (M2 -> M3): reminders gain a simple repeat cycle so the calendar can
+ * reschedule the next occurrence on fire/completion (PLAN.md §8). The [Event]
+ * table already carries `recurrence`; this adds the mirror column to [Reminder].
+ * Purely additive with a non-null default matching the entity's
+ * `Recurrence.NONE`, so Room's post-migration validation passes.
+ */
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `Reminder` ADD COLUMN `recurrence` TEXT NOT NULL DEFAULT 'NONE'")
+    }
+}

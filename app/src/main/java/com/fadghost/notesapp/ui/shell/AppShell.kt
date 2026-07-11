@@ -41,11 +41,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.runtime.LaunchedEffect
 import com.fadghost.notesapp.data.prefs.ThemeMode
 import com.fadghost.notesapp.ui.DraftRecoveryViewModel
+import com.fadghost.notesapp.ui.diary.DiaryNavViewModel
+import com.fadghost.notesapp.ui.diary.DiaryScreen
 import com.fadghost.notesapp.ui.editor.EditorScreen
-import com.fadghost.notesapp.ui.screens.CalendarScreen
-import com.fadghost.notesapp.ui.screens.DiaryScreen
+import com.fadghost.notesapp.ui.calendar.CalendarDeepLink
+import com.fadghost.notesapp.ui.calendar.CalendarScreen
 import com.fadghost.notesapp.ui.notes.NotesScreen
 import com.fadghost.notesapp.ui.screens.SettingsScreen
 import com.fadghost.notesapp.ui.theme.Aura
@@ -55,7 +58,8 @@ import com.fadghost.notesapp.ui.theme.AuraType
 fun AppShell(
     themeMode: ThemeMode,
     onSelectThemeMode: (ThemeMode) -> Unit,
-    draftRecovery: DraftRecoveryViewModel = hiltViewModel()
+    draftRecovery: DraftRecoveryViewModel = hiltViewModel(),
+    diaryNav: DiaryNavViewModel = hiltViewModel()
 ) {
     val tokens = Aura.tokens
     var selectedTab by rememberSaveable { mutableStateOf(NavTab.NOTES) }
@@ -64,6 +68,25 @@ fun AppShell(
     var editorNoteId by rememberSaveable { mutableStateOf<Long?>(null) }
     var restoringDraft by remember { mutableStateOf(false) }
     var showQuickReminder by remember { mutableStateOf(false) }
+
+    // Journaling-nudge deep link (PLAN.md §7): jump to the Diary tab when requested.
+    val diaryRequests by diaryNav.openDiaryRequests.collectAsState()
+    LaunchedEffect(diaryRequests) {
+        if (diaryRequests > 0) {
+            selectedTab = NavTab.DIARY
+            editorNoteId = null
+        }
+    }
+
+    // Reminder-notification deep link (PLAN.md §8): jump to Calendar; the screen
+    // then opens the item's edit sheet from CalendarDeepLink.
+    val calendarDeepLink by CalendarDeepLink.pendingReminderId.collectAsState()
+    LaunchedEffect(calendarDeepLink) {
+        if (calendarDeepLink != null) {
+            selectedTab = NavTab.CALENDAR
+            editorNoteId = null
+        }
+    }
 
     val recoverableDraft by draftRecovery.draft.collectAsState()
 
@@ -124,6 +147,8 @@ fun AppShell(
                 when (action.label) {
                     // Wire "New note" to a blank editor with the keyboard up (PLAN.md §6.9).
                     "New note" -> editorNoteId = 0L
+                    // Wire "New diary entry" to the Diary tab (today's entry is front-and-centre).
+                    "New diary entry" -> { selectedTab = NavTab.DIARY; editorNoteId = null }
                     // Wire "Quick reminder" to the minimal Aura dialog (PLAN.md §4/§8).
                     "Quick reminder" -> showQuickReminder = true
                 }

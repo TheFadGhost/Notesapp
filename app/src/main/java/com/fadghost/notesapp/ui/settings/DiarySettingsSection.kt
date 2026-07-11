@@ -1,0 +1,236 @@
+package com.fadghost.notesapp.ui.settings
+
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.fadghost.notesapp.ui.components.AuraGlyph
+import com.fadghost.notesapp.ui.components.Glyph
+import com.fadghost.notesapp.ui.theme.Aura
+import com.fadghost.notesapp.ui.theme.AuraType
+
+/**
+ * Settings sections for the Diary (PLAN.md §7): a Privacy → biometric gate toggle
+ * with honest copy, and a journaling-nudge toggle + custom Aura time picker. All
+ * state is DataStore-backed via [DiarySettingsViewModel].
+ */
+@Composable
+fun DiarySettingsSection(viewModel: DiarySettingsViewModel = hiltViewModel()) {
+    val tokens = Aura.tokens
+    val biometric by viewModel.biometricEnabled.collectAsState()
+    val nudgeOn by viewModel.nudgeEnabled.collectAsState()
+    val nudgeTime by viewModel.nudgeTime.collectAsState()
+
+    val context = LocalContext.current
+    val notificationsGranted = remember(nudgeOn) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) true
+        else ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+    }
+
+    // --- Privacy ---
+    SectionCardLocal(title = "Privacy") {
+        ToggleRow(
+            title = "Lock the Diary tab",
+            subtitle = "Locks the diary screen. Data on disk is not encrypted.",
+            checked = biometric,
+            onToggle = viewModel::setBiometricEnabled
+        )
+    }
+
+    Spacer(Modifier.height(16.dp))
+
+    // --- Diary nudge ---
+    SectionCardLocal(title = "Diary") {
+        ToggleRow(
+            title = "Daily journaling reminder",
+            subtitle = if (nudgeOn && !notificationsGranted)
+                "Enable notifications for this app in system settings to receive it."
+            else "A gentle nudge to write, at a time you choose.",
+            checked = nudgeOn,
+            onToggle = viewModel::setNudgeEnabled
+        )
+        if (nudgeOn) {
+            Spacer(Modifier.height(14.dp))
+            BasicText("Reminder time", style = AuraType.label.copy(color = tokens.colors.textSecondary))
+            Spacer(Modifier.height(10.dp))
+            TimeStepper(
+                hour = nudgeTime.hour,
+                minute = nudgeTime.minute,
+                onChange = viewModel::setNudgeTime
+            )
+        }
+    }
+}
+
+@Composable
+private fun ToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onToggle: (Boolean) -> Unit
+) {
+    val tokens = Aura.tokens
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { onToggle(!checked) }
+            )
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            BasicText(title, style = AuraType.body.copy(color = tokens.colors.textPrimary))
+            BasicText(subtitle, style = AuraType.label.copy(color = tokens.colors.textSecondary))
+        }
+        Spacer(Modifier.width(12.dp))
+        AuraToggle(checked = checked, onToggle = onToggle)
+    }
+}
+
+/** Custom Aura on/off switch — pill track + spring knob (no Material Switch). */
+@Composable
+private fun AuraToggle(checked: Boolean, onToggle: (Boolean) -> Unit) {
+    val tokens = Aura.tokens
+    val t by animateFloatAsState(
+        if (checked) 1f else 0f,
+        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "toggle"
+    )
+    val trackW = 46.dp
+    val knob = 22.dp
+    val knobX by animateDpAsState(if (checked) trackW - knob - 3.dp else 3.dp, label = "knob")
+    val track = lerp(tokens.colors.textSecondary.copy(alpha = 0.35f), tokens.colors.accent, t)
+    Box(
+        Modifier
+            .width(trackW)
+            .height(28.dp)
+            .clip(RoundedCornerShape(tokens.radii.pill))
+            .background(track)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { onToggle(!checked) }
+            ),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Box(
+            Modifier
+                .padding(start = knobX)
+                .size(knob)
+                .clip(RoundedCornerShape(tokens.radii.pill))
+                .background(tokens.colors.surface)
+        )
+    }
+}
+
+@Composable
+private fun TimeStepper(hour: Int, minute: Int, onChange: (Int, Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Field(
+            label = "Hour",
+            display = hour.toString().padStart(2, '0'),
+            onUp = { onChange((hour + 1) % 24, minute) },
+            onDown = { onChange((hour + 23) % 24, minute) }
+        )
+        Field(
+            label = "Min",
+            display = minute.toString().padStart(2, '0'),
+            onUp = { onChange(hour, (minute + 5) % 60) },
+            onDown = { onChange(hour, (minute + 55) % 60) }
+        )
+    }
+}
+
+@Composable
+private fun Field(label: String, display: String, onUp: () -> Unit, onDown: () -> Unit) {
+    val tokens = Aura.tokens
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        BasicText(label, style = AuraType.label.copy(color = tokens.colors.textSecondary))
+        Spacer(Modifier.height(4.dp))
+        StepBtn(Glyph.CHEVRON_UP, onUp)
+        Box(
+            Modifier
+                .padding(vertical = 4.dp)
+                .width(56.dp)
+                .clip(RoundedCornerShape(tokens.radii.sm))
+                .background(tokens.colors.background)
+                .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.sm))
+                .padding(vertical = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            BasicText(display, style = AuraType.title.copy(color = tokens.colors.textPrimary, textAlign = TextAlign.Center))
+        }
+        StepBtn(Glyph.CHEVRON_DOWN, onDown)
+    }
+}
+
+@Composable
+private fun StepBtn(glyph: Glyph, onClick: () -> Unit) {
+    val tokens = Aura.tokens
+    Box(
+        Modifier
+            .size(width = 56.dp, height = 30.dp)
+            .clip(RoundedCornerShape(tokens.radii.sm))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        AuraGlyph(glyph, tokens.colors.accent, Modifier.size(20.dp))
+    }
+}
+
+@Composable
+private fun SectionCardLocal(title: String, content: @Composable () -> Unit) {
+    val tokens = Aura.tokens
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(tokens.radii.md))
+            .background(tokens.colors.surface)
+            .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.md))
+            .padding(16.dp)
+    ) {
+        BasicText(title, style = AuraType.label.copy(color = tokens.colors.textSecondary))
+        Spacer(Modifier.height(12.dp))
+        content()
+    }
+}
