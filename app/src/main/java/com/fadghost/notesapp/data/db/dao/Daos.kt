@@ -17,6 +17,14 @@ import com.fadghost.notesapp.data.db.entity.Reminder
 import com.fadghost.notesapp.data.db.entity.Tag
 import kotlinx.coroutines.flow.Flow
 
+/** Flat row for building a noteId -> tags map for the list without per-note flows. */
+data class NoteTagRow(
+    val noteId: Long,
+    val tagId: Long,
+    val name: String,
+    val color: Int
+)
+
 @Dao
 interface NoteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -31,25 +39,75 @@ interface NoteDao {
     @Query("SELECT * FROM Note WHERE id = :id")
     suspend fun getById(id: Long): Note?
 
+    @Query("SELECT * FROM Note WHERE id = :id")
+    fun observeById(id: Long): Flow<Note?>
+
+    // --- Filter views (PLAN.md §6 chip bar) -------------------------------------
+
     @Query("SELECT * FROM Note WHERE deletedAt IS NULL AND archived = 0 ORDER BY pinned DESC, updatedAt DESC")
     fun observeActive(): Flow<List<Note>>
+
+    @Query("SELECT * FROM Note WHERE deletedAt IS NULL AND archived = 1 ORDER BY updatedAt DESC")
+    fun observeArchived(): Flow<List<Note>>
 
     @Query("SELECT * FROM Note WHERE deletedAt IS NOT NULL ORDER BY deletedAt DESC")
     fun observeTrash(): Flow<List<Note>>
 
-    /**
-     * Full-text search over the FTS5 external-content table [note_fts].
-     * Uses [RawQuery] so Room does not compile-time validate the virtual table
-     * (which is created via the database callback, not as a Room entity).
-     */
+    @Query("SELECT * FROM Note WHERE deletedAt IS NULL AND archived = 0 AND folderId = :folderId ORDER BY pinned DESC, updatedAt DESC")
+    fun observeByFolder(folderId: Long): Flow<List<Note>>
+
+    @Query(
+        "SELECT n.* FROM Note n JOIN NoteTagCrossRef x ON n.id = x.noteId " +
+            "WHERE x.tagId = :tagId AND n.deletedAt IS NULL AND n.archived = 0 " +
+            "ORDER BY n.pinned DESC, n.updatedAt DESC"
+    )
+    fun observeByTag(tagId: Long): Flow<List<Note>>
+
+    @Query(
+        "SELECT * FROM Note WHERE deletedAt IS NULL AND archived = 0 " +
+            "AND id NOT IN (SELECT noteId FROM NoteTagCrossRef) " +
+            "ORDER BY pinned DESC, updatedAt DESC"
+    )
+    fun observeUntagged(): Flow<List<Note>>
+
+    // --- Mutations --------------------------------------------------------------
+
+    @Query("UPDATE Note SET pinned = :pinned, updatedAt = :now WHERE id = :id")
+    suspend fun setPinned(id: Long, pinned: Boolean, now: Long)
+
+    @Query("UPDATE Note SET archived = :archived, updatedAt = :now WHERE id = :id")
+    suspend fun setArchived(id: Long, archived: Boolean, now: Long)
+
+    @Query("UPDATE Note SET deletedAt = :deletedAt, updatedAt = :now WHERE id = :id")
+    suspend fun setDeletedAt(id: Long, deletedAt: Long?, now: Long)
+
+    @Query("UPDATE Note SET folderId = :folderId, updatedAt = :now WHERE id = :id")
+    suspend fun moveToFolder(id: Long, folderId: Long?, now: Long)
+
+    @Query("DELETE FROM Note WHERE id = :id")
+    suspend fun hardDelete(id: Long)
+
+    // --- Trash purge (WorkManager, PLAN.md §6/§7) -------------------------------
+
+    @Query("SELECT id FROM Note WHERE deletedAt IS NOT NULL AND deletedAt < :cutoff")
+    suspend fun expiredTrashIds(cutoff: Long): List<Long>
+
+    // --- Export -----------------------------------------------------------------
+
+    @Query("SELECT * FROM Note WHERE deletedAt IS NULL ORDER BY id")
+    suspend fun allForExport(): List<Note>
+
+    // --- Full-text search (regular FTS5 table, joined back for filtering) --------
+
     @RawQuery(observedEntities = [Note::class])
     fun searchRaw(query: SimpleSQLiteQuery): Flow<List<Note>>
 
+    /** Active (non-trash, non-archived) notes matching an FTS5 MATCH expression. */
     fun search(match: String): Flow<List<Note>> = searchRaw(
         SimpleSQLiteQuery(
             "SELECT n.* FROM Note n JOIN note_fts f ON n.id = f.rowid " +
-                "WHERE f.note_fts MATCH ? AND n.deletedAt IS NULL " +
-                "ORDER BY rank",
+                "WHERE f.note_fts MATCH ? AND n.deletedAt IS NULL AND n.archived = 0 " +
+                "ORDER BY n.pinned DESC, n.updatedAt DESC",
             arrayOf(match)
         )
     )
@@ -63,8 +121,23 @@ interface FolderDao {
     @Delete
     suspend fun delete(folder: Folder)
 
+    @Query("DELETE FROM Folder WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("UPDATE Folder SET name = :name WHERE id = :id")
+    suspend fun rename(id: Long, name: String)
+
+    @Query("SELECT * FROM Folder WHERE name = :name LIMIT 1")
+    suspend fun getByName(name: String): Folder?
+
+    @Query("SELECT * FROM Folder WHERE id = :id")
+    suspend fun getById(id: Long): Folder?
+
     @Query("SELECT * FROM Folder ORDER BY name")
     fun observeAll(): Flow<List<Folder>>
+
+    @Query("SELECT * FROM Folder ORDER BY name")
+    suspend fun all(): List<Folder>
 }
 
 @Dao
@@ -75,8 +148,26 @@ interface TagDao {
     @Delete
     suspend fun delete(tag: Tag)
 
+    @Query("DELETE FROM Tag WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("UPDATE Tag SET name = :name WHERE id = :id")
+    suspend fun rename(id: Long, name: String)
+
+    @Query("UPDATE Tag SET color = :color WHERE id = :id")
+    suspend fun setColor(id: Long, color: Int)
+
+    @Query("SELECT * FROM Tag WHERE name = :name LIMIT 1")
+    suspend fun getByName(name: String): Tag?
+
+    @Query("SELECT * FROM Tag WHERE id = :id")
+    suspend fun getById(id: Long): Tag?
+
     @Query("SELECT * FROM Tag ORDER BY name")
     fun observeAll(): Flow<List<Tag>>
+
+    @Query("SELECT * FROM Tag ORDER BY name")
+    suspend fun all(): List<Tag>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun link(crossRef: NoteTagCrossRef)
@@ -84,8 +175,28 @@ interface TagDao {
     @Delete
     suspend fun unlink(crossRef: NoteTagCrossRef)
 
-    @Query("SELECT t.* FROM Tag t JOIN NoteTagCrossRef x ON t.id = x.tagId WHERE x.noteId = :noteId")
+    @Query("DELETE FROM NoteTagCrossRef WHERE noteId = :noteId")
+    suspend fun clearTagsForNote(noteId: Long)
+
+    @Query("SELECT t.* FROM Tag t JOIN NoteTagCrossRef x ON t.id = x.tagId WHERE x.noteId = :noteId ORDER BY t.name")
     fun observeTagsForNote(noteId: Long): Flow<List<Tag>>
+
+    @Query("SELECT t.* FROM Tag t JOIN NoteTagCrossRef x ON t.id = x.tagId WHERE x.noteId = :noteId ORDER BY t.name")
+    suspend fun tagsForNote(noteId: Long): List<Tag>
+
+    /** All note<->tag links joined with tag info, for building the list's tag map. */
+    @Query(
+        "SELECT x.noteId AS noteId, t.id AS tagId, t.name AS name, t.color AS color " +
+            "FROM NoteTagCrossRef x JOIN Tag t ON t.id = x.tagId"
+    )
+    fun observeAllNoteTags(): Flow<List<NoteTagRow>>
+
+    // Tag merge (PLAN.md §6): move source's links onto target, then drop source.
+    @Query("UPDATE OR IGNORE NoteTagCrossRef SET tagId = :targetId WHERE tagId = :sourceId")
+    suspend fun reassignLinks(sourceId: Long, targetId: Long)
+
+    @Query("DELETE FROM NoteTagCrossRef WHERE tagId = :tagId")
+    suspend fun deleteLinksForTag(tagId: Long)
 }
 
 @Dao

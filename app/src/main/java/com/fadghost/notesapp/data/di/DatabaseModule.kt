@@ -2,6 +2,7 @@ package com.fadghost.notesapp.data.di
 
 import android.content.Context
 import androidx.room.Room
+import com.fadghost.notesapp.data.db.MIGRATION_1_2
 import com.fadghost.notesapp.data.db.NotesDatabase
 import com.fadghost.notesapp.data.db.dao.DiaryDao
 import com.fadghost.notesapp.data.db.dao.EventDao
@@ -25,6 +26,7 @@ object DatabaseModule {
     fun provideDatabase(@ApplicationContext context: Context): NotesDatabase =
         Room.databaseBuilder(context, NotesDatabase::class.java, NotesDatabase.NAME)
             .addCallback(NotesDatabase.CALLBACK)
+            .addMigrations(MIGRATION_1_2)
             .build()
 
     @Provides

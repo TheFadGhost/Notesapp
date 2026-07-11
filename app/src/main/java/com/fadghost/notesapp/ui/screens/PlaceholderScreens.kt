@@ -37,9 +37,6 @@ private fun EmptyScreen(title: String, subtitle: String) {
 }
 
 @Composable
-fun NotesScreen() = EmptyScreen("Notes", "Your notes will live here. Tap + to capture.")
-
-@Composable
 fun DiaryScreen() = EmptyScreen("Diary", "One entry per day. Locked behind biometrics later.")
 
 @Composable

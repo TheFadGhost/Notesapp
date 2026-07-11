@@ -28,7 +28,7 @@ import com.fadghost.notesapp.data.db.entity.Tag
         Event::class,
         Reminder::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

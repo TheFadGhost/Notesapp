@@ -20,16 +20,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.fadghost.notesapp.data.backup.ImportMode
 import com.fadghost.notesapp.data.prefs.ThemeMode
+import com.fadghost.notesapp.ui.settings.BackupViewModel
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraType
 
@@ -64,12 +71,81 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(16.dp))
+        BackupSection()
+
+        Spacer(Modifier.height(16.dp))
         SectionCard(title = "AI (built in M2)") {
             PlaceholderRow("OpenRouter API key", "Add later — AI stays optional")
             DividerLine()
             PlaceholderRow("Text model", "deepseek/deepseek-v4-flash")
             DividerLine()
             PlaceholderRow("Speech-to-text model", "qwen/qwen3-asr-flash-2026-02-10")
+        }
+    }
+}
+
+@Composable
+private fun BackupSection(viewModel: BackupViewModel = hiltViewModel()) {
+    val tokens = Aura.tokens
+    val status by viewModel.status.collectAsState()
+    val pending by viewModel.pendingPreview.collectAsState()
+    val busy by viewModel.busy.collectAsState()
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri -> uri?.let(viewModel::export) }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let(viewModel::loadPreview) }
+
+    SectionCard(title = "Backup") {
+        ActionRow("Export all notes", "ZIP: markdown + metadata + checksums") {
+            if (!busy) exportLauncher.launch("notesapp-backup.zip")
+        }
+        DividerLine()
+        ActionRow("Import from ZIP", "Preview, then replace or merge") {
+            if (!busy) importLauncher.launch(arrayOf("application/zip", "application/octet-stream"))
+        }
+        pending?.let { preview ->
+            DividerLine()
+            BasicText(
+                text = "Ready to import ${preview.manifest.noteCount} notes" +
+                    if (preview.isIntact) "" else " (checksum warnings)",
+                style = AuraType.label.copy(color = tokens.colors.textSecondary),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ThemeChip("Merge", selected = false, onClick = { viewModel.confirmImport(ImportMode.MERGE) }, modifier = Modifier.weight(1f))
+                ThemeChip("Replace", selected = false, onClick = { viewModel.confirmImport(ImportMode.REPLACE) }, modifier = Modifier.weight(1f))
+                ThemeChip("Cancel", selected = false, onClick = { viewModel.cancelImport() }, modifier = Modifier.weight(1f))
+            }
+        }
+        status?.let {
+            DividerLine()
+            BasicText(it, style = AuraType.label.copy(color = tokens.colors.textSecondary), modifier = Modifier.padding(top = 8.dp))
+        }
+    }
+}
+
+@Composable
+private fun ActionRow(title: String, subtitle: String, onClick: () -> Unit) {
+    val tokens = Aura.tokens
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(tokens.radii.sm))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            BasicText(title, style = AuraType.body.copy(color = tokens.colors.textPrimary))
+            BasicText(subtitle, style = AuraType.label.copy(color = tokens.colors.textSecondary))
         }
     }
 }
