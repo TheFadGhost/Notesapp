@@ -106,6 +106,7 @@ fun AppShell(
             is CaptureRequest.Voice -> { editorNoteId = null; showVoiceCapture = true }
             is CaptureRequest.TodayDiary -> { selectedTab = NavTab.DIARY; editorNoteId = null }
             is CaptureRequest.SharedText -> captureVm.createNoteFromText(req.text)
+            is CaptureRequest.SharedAttachments -> captureVm.createNoteWithAttachments(req.uris)
             null -> {}
         }
         if (captureRequest != null) CaptureLaunch.clear()

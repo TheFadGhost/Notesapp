@@ -27,7 +27,7 @@ enum class Glyph {
     PIN, ARCHIVE, TRASH, DUPLICATE, FOLDER, TAG, SEARCH, CLOSE, GRID, LIST,
     BOLD, ITALIC, HEADING, CHECKLIST, BULLET, UNDO, REDO, RESTORE, CHECK, PLUS,
     CHEVRON, BACK, MORE, SPARKLE, CALENDAR, CLOCK, CHEVRON_UP, CHEVRON_DOWN,
-    DOCUMENT, BOOK, MIC
+    DOCUMENT, BOOK, MIC, IMAGE, PAPERCLIP, SHARE, PENCIL, EXPAND
 }
 
 @Composable
@@ -68,8 +68,88 @@ fun AuraGlyph(glyph: Glyph, color: Color, modifier: Modifier = Modifier) {
             Glyph.DOCUMENT -> drawDocument(color, s, st)
             Glyph.BOOK -> drawBook(color, s, st)
             Glyph.MIC -> drawMic(color, s, st)
+            Glyph.IMAGE -> drawImage(color, s, st)
+            Glyph.PAPERCLIP -> drawPaperclip(color, s, st)
+            Glyph.SHARE -> drawShare(color, s, st)
+            Glyph.PENCIL -> drawPencil(color, s, st)
+            Glyph.EXPAND -> drawExpand(color, s, st)
         }
     }
+}
+
+/** A framed picture: rounded frame, a small sun, and a mountain ridge (attachments). */
+private fun DrawScope.drawImage(c: Color, s: Float, st: Stroke) {
+    roundRect(c, s * 0.22f, s * 0.26f, s * 0.56f, s * 0.48f, s, st)
+    drawCircle(c, s * 0.05f, Offset(s * 0.38f, s * 0.40f), style = st)
+    val ridge = Path().apply {
+        moveTo(s * 0.24f, s * 0.68f)
+        lineTo(s * 0.40f, s * 0.52f)
+        lineTo(s * 0.52f, s * 0.62f)
+        lineTo(s * 0.62f, s * 0.48f)
+        lineTo(s * 0.76f, s * 0.66f)
+    }
+    drawPath(ridge, c, style = st)
+}
+
+/** A paperclip (generic file attachments). */
+private fun DrawScope.drawPaperclip(c: Color, s: Float, st: Stroke) {
+    val p = Path().apply {
+        moveTo(s * 0.62f, s * 0.36f)
+        lineTo(s * 0.62f, s * 0.66f)
+        cubicTo(s * 0.62f, s * 0.78f, s * 0.40f, s * 0.78f, s * 0.40f, s * 0.66f)
+        lineTo(s * 0.40f, s * 0.34f)
+        cubicTo(s * 0.40f, s * 0.26f, s * 0.54f, s * 0.26f, s * 0.54f, s * 0.34f)
+        lineTo(s * 0.54f, s * 0.64f)
+        cubicTo(s * 0.54f, s * 0.68f, s * 0.48f, s * 0.68f, s * 0.48f, s * 0.64f)
+        lineTo(s * 0.48f, s * 0.38f)
+    }
+    drawPath(p, c, style = st)
+}
+
+/** An upward share arrow out of a tray. */
+private fun DrawScope.drawShare(c: Color, s: Float, st: Stroke) {
+    line(c, s * 0.50f, s * 0.24f, s * 0.50f, s * 0.58f, st)
+    val arrow = Path().apply {
+        moveTo(s * 0.38f, s * 0.36f); lineTo(s * 0.50f, s * 0.24f); lineTo(s * 0.62f, s * 0.36f)
+    }
+    drawPath(arrow, c, style = st)
+    val tray = Path().apply {
+        moveTo(s * 0.32f, s * 0.46f)
+        lineTo(s * 0.28f, s * 0.46f)
+        lineTo(s * 0.28f, s * 0.78f)
+        lineTo(s * 0.72f, s * 0.78f)
+        lineTo(s * 0.72f, s * 0.46f)
+        lineTo(s * 0.68f, s * 0.46f)
+    }
+    drawPath(tray, c, style = st)
+}
+
+/** A pencil at 45° (annotate). */
+private fun DrawScope.drawPencil(c: Color, s: Float, st: Stroke) {
+    val body = Path().apply {
+        moveTo(s * 0.30f, s * 0.70f)
+        lineTo(s * 0.62f, s * 0.38f)
+        lineTo(s * 0.72f, s * 0.48f)
+        lineTo(s * 0.40f, s * 0.80f)
+        close()
+    }
+    drawPath(body, c, style = st)
+    line(c, s * 0.30f, s * 0.70f, s * 0.40f, s * 0.80f, st)
+    line(c, s * 0.58f, s * 0.42f, s * 0.68f, s * 0.52f, st)
+}
+
+/** Diagonal expand arrows (fullscreen). */
+private fun DrawScope.drawExpand(c: Color, s: Float, st: Stroke) {
+    val tl = Path().apply {
+        moveTo(s * 0.30f, s * 0.44f); lineTo(s * 0.30f, s * 0.30f); lineTo(s * 0.44f, s * 0.30f)
+    }
+    drawPath(tl, c, style = st)
+    val br = Path().apply {
+        moveTo(s * 0.70f, s * 0.56f); lineTo(s * 0.70f, s * 0.70f); lineTo(s * 0.56f, s * 0.70f)
+    }
+    drawPath(br, c, style = st)
+    line(c, s * 0.30f, s * 0.30f, s * 0.44f, s * 0.44f, st)
+    line(c, s * 0.70f, s * 0.70f, s * 0.56f, s * 0.56f, st)
 }
 
 /** A page with a folded corner + a couple of text lines (capture: New note). */

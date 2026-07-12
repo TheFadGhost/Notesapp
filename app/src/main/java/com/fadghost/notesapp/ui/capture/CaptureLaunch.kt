@@ -33,4 +33,7 @@ sealed interface CaptureRequest {
 
     /** Create a note from shared/selected text (ACTION_SEND / PROCESS_TEXT). */
     data class SharedText(val text: String) : CaptureRequest
+
+    /** Create a note from shared image/file content (ACTION_SEND[_MULTIPLE], M-A). */
+    data class SharedAttachments(val uris: List<android.net.Uri>) : CaptureRequest
 }

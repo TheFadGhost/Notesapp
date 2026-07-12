@@ -116,7 +116,26 @@ class MainActivity : FragmentActivity() {
                 val text = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
                 if (!text.isNullOrBlank()) CaptureLaunch.post(CaptureRequest.SharedText(text))
             }
+
+            // Share an image/file into a new note (M-A). Single + multiple.
+            intent.action == Intent.ACTION_SEND -> {
+                val uri = intentStreamUris(intent)
+                if (uri.isNotEmpty()) CaptureLaunch.post(CaptureRequest.SharedAttachments(uri))
+            }
+
+            intent.action == Intent.ACTION_SEND_MULTIPLE -> {
+                val uris = intentStreamUris(intent)
+                if (uris.isNotEmpty()) CaptureLaunch.post(CaptureRequest.SharedAttachments(uris))
+            }
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun intentStreamUris(intent: Intent): List<android.net.Uri> = when (intent.action) {
+        Intent.ACTION_SEND_MULTIPLE ->
+            intent.getParcelableArrayListExtra<android.net.Uri>(Intent.EXTRA_STREAM).orEmpty().filterNotNull()
+        else ->
+            (intent.getParcelableExtra(Intent.EXTRA_STREAM) as? android.net.Uri)?.let { listOf(it) }.orEmpty()
     }
 
     companion object {

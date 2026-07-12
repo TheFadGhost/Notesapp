@@ -47,6 +47,15 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
 
+            <!-- Share an image / file into a new note (M-A attachments). -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/*" />
+            </intent-filter>
+
             <!-- Selected-text context action → new note (PLAN.md §6). -->
             <intent-filter>
                 <action android:name="android.intent.action.PROCESS_TEXT" />

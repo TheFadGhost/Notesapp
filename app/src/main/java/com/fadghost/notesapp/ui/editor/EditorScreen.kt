@@ -51,6 +51,13 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -71,6 +78,7 @@ import kotlinx.coroutines.launch
  * tappable checkboxes, undo/redo, tag/folder assignment. Autosave + draft
  * recovery live in [EditorViewModel].
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun EditorScreen(
     noteId: Long,
@@ -81,7 +89,8 @@ fun EditorScreen(
     viewModel: EditorViewModel = hiltViewModel(),
     aiViewModel: com.fadghost.notesapp.ui.ai.EditorAiViewModel = hiltViewModel(),
     audioViewModel: com.fadghost.notesapp.ui.voice.EditorAudioViewModel = hiltViewModel(),
-    voiceViewModel: com.fadghost.notesapp.ui.voice.VoiceRecordViewModel = hiltViewModel()
+    voiceViewModel: com.fadghost.notesapp.ui.voice.VoiceRecordViewModel = hiltViewModel(),
+    attachViewModel: com.fadghost.notesapp.ui.attach.EditorAttachmentViewModel = hiltViewModel()
 ) {
     val tokens = Aura.tokens
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -104,8 +113,13 @@ fun EditorScreen(
     var voiceTargetNoteId by remember { mutableStateOf(0L) }
     var openPlayer by remember { mutableStateOf<com.fadghost.notesapp.data.db.entity.AudioAttachment?>(null) }
 
+    // Attachments (M-A): chips in the body, an ingest menu, tap popover, undoable remove.
+    val attachmentsById by attachViewModel.byId.collectAsStateWithLifecycle()
+    var showAttachMenu by remember { mutableStateOf(false) }
+
     LaunchedEffect(noteId) { viewModel.open(noteId, restoreDraft) }
     LaunchedEffect(state.noteId) { audioViewModel.bind(state.noteId) }
+    LaunchedEffect(state.noteId) { attachViewModel.bind(state.noteId) }
 
     var titleValue by remember { mutableStateOf(TextFieldValue("")) }
     var bodyValue by remember { mutableStateOf(TextFieldValue("")) }
@@ -181,10 +195,75 @@ fun EditorScreen(
         if (autoCleanTranscript) aiViewModel.startCleanup(state.noteId, newText)
     }
 
+    // Insert the inline attachment token at the caret (M-A). A leading space is added
+    // when the caret butts against a word so the chip reads as its own inline element.
+    fun insertAttachment(attId: Long) {
+        val existing = bodyValue.text
+        val caret = bodyValue.selection.end.coerceIn(0, existing.length)
+        val needLead = caret > 0 && !existing[caret - 1].isWhitespace()
+        val insert = (if (needLead) " " else "") + "[[att:$attId]] "
+        val newText = existing.substring(0, caret) + insert + existing.substring(caret)
+        applyBody(TextFieldValue(newText, TextRange(caret + insert.length)), UndoStack.CoalesceKey.BOUNDARY)
+    }
+
+    // System photo picker (no permission) + generic document picker. The note is forced
+    // to exist only once files are actually chosen, so cancelling leaves no empty note.
+    val photoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris ->
+        if (uris.isNotEmpty()) viewModel.ensureSaved { id ->
+            uris.forEach { uri -> attachViewModel.ingest(id, uri) { att -> insertAttachment(att.id) } }
+        }
+    }
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) viewModel.ensureSaved { id ->
+            uris.forEach { uri -> attachViewModel.ingest(id, uri) { att -> insertAttachment(att.id) } }
+        }
+    }
+
+    fun onAttach() { focus.clearFocus(); showAttachMenu = true }
+
+    fun onPasteImage() {
+        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+        val clip = cm?.primaryClip ?: return
+        val uris = (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
+        if (uris.isNotEmpty()) viewModel.ensureSaved { id ->
+            uris.forEach { uri -> attachViewModel.ingest(id, uri) { att -> insertAttachment(att.id) } }
+        }
+    }
+
+    // Drag-and-drop into the editor (M-A): accept dropped image/file content URIs.
+    val dndTarget = remember {
+        object : DragAndDropTarget {
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                val drag = event.toAndroidDragEvent()
+                val activity = context as? android.app.Activity
+                runCatching { activity?.requestDragAndDropPermissions(drag) }
+                val clip = drag.clipData ?: return false
+                val uris = (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
+                if (uris.isEmpty()) return false
+                viewModel.ensureSaved { id ->
+                    uris.forEach { uri -> attachViewModel.ingest(id, uri) { att -> insertAttachment(att.id) } }
+                }
+                return true
+            }
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
             .background(tokens.colors.background)
+            .dragAndDropTarget(
+                shouldStartDragAndDrop = { event ->
+                    val d = event.toAndroidDragEvent().clipDescription ?: return@dragAndDropTarget false
+                    d.hasMimeType("image/*") || d.hasMimeType("application/*") ||
+                        d.hasMimeType("text/uri-list") || d.hasMimeType("*/*")
+                },
+                target = dndTarget
+            )
     ) {
         Column(
             Modifier
@@ -217,6 +296,7 @@ fun EditorScreen(
                         IconAction(Glyph.SPARKLE, tint = tokens.colors.accent) { onCleanup() }
                         IconAction(Glyph.CALENDAR, tint = tokens.colors.accent) { onExtract() }
                         MicAction(tint = tokens.colors.accent) { onVoice() }
+                        IconAction(Glyph.PAPERCLIP, tint = tokens.colors.accent) { onAttach() }
                         // Push the chips to the right of the cluster when there's room; use a
                         // fixed gap in the scrollable case (weight is invalid inside scroll).
                         if (scrollable) Spacer(Modifier.width(12.dp)) else Spacer(Modifier.weight(1f))
@@ -471,7 +551,27 @@ fun EditorScreen(
             onDelete = { id -> audioViewModel.deleteAttachment(id); openPlayer = null },
             onDismiss = { openPlayer = null }
         )
+
+        // Attachment source menu (M-A ingest): Photo / File / Paste image.
+        com.fadghost.notesapp.ui.attach.AttachMenu(
+            visible = showAttachMenu,
+            canPaste = remember(showAttachMenu) { showAttachMenu && clipboardHasImage(context) },
+            onPhoto = {
+                showAttachMenu = false
+                photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onFile = { showAttachMenu = false; filePicker.launch(arrayOf("*/*")) },
+            onPasteImage = { showAttachMenu = false; onPasteImage() },
+            onDismiss = { showAttachMenu = false }
+        )
     }
+}
+
+/** True when the system clipboard currently holds an image (enables "Paste image"). */
+private fun clipboardHasImage(context: android.content.Context): Boolean {
+    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+    val desc = cm?.primaryClipDescription ?: return false
+    return desc.hasMimeType("image/*")
 }
 
 @Composable
