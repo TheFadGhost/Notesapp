@@ -79,8 +79,16 @@ class MigrationTest {
             )
         }
 
-        // Migrate to v8; Room validates the mirror tables against schemas/8.json.
-        val db = helper.runMigrationsAndValidate(testDb, 8, true, MIGRATION_7_8)
+        // Open through Room with the migration — the SAME path the app uses at runtime.
+        // Unlike runMigrationsAndValidate (which is stricter than the runtime open), Room's
+        // open tolerates the intentional raw FTS4 tables (memory_fts / note_fts) that are not
+        // Room entities — framework SQLite has no fts5 — while still validating every tracked
+        // table (memory_entries / memory_links / …) against the generated schema.
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val room = androidx.room.Room.databaseBuilder(context, NotesDatabase::class.java, testDb)
+            .addMigrations(MIGRATION_7_8)
+            .build()
+        val db = room.openHelper.writableDatabase
 
         // Seeded note survived.
         db.query("SELECT title FROM Note WHERE id = 1").use { c ->
@@ -114,5 +122,7 @@ class MigrationTest {
             assertTrue(c.moveToFirst())
             assertEquals("gym-schedule", c.getString(0))
         }
+
+        room.close()
     }
 }

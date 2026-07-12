@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses simple date-tagged releases rather than strict SemVer
 (it's a sideloaded personal app, not a library).
 
+## [v3.0.0] - 2026-07-12 - Attachments & Memory
+
+Adds image/file attachments and the first half of the Folio AI memory system, on top of a
+round of real bug fixes to the 2.0.0 AI and layout code. The upgrade path from 2.0.0
+(database 6 → 7 → 8) is verified on-device.
+
+### Added
+- **Attachments** — add images and files to any note via the photo picker, file picker,
+  the system share sheet, drag-and-drop, or paste. Files are stored on-device per note.
+- Inline **attachment chips**: a compact pill with the filename in a dedicated link-blue
+  (contrast-checked on every theme). Tap for a preview popover — Expand, Annotate, Share, Remove.
+- Fullscreen **image viewer** with pinch/double-tap zoom, pan, and drag-down to dismiss.
+- **Annotation editor** — pencil (3 widths), highlighter, eraser, and draggable text, with
+  finger + stylus support and undo/redo. Saves as a new copy; the original is preserved.
+- **Image search** — pictures are indexed in the background (OCR + a short description) so
+  full-text search finds them by the text inside them. Runs silently; needs your OpenRouter key.
+- **Folio memory (foundation)** — a private, on-device memory vault (Obsidian-style markdown
+  files with a fast search mirror). A new editor AI menu: **Clean up · Rewrite · Extract ·
+  Add to memory**. "Add to memory" pulls durable facts out of a note as confirm cards before
+  saving anything; "Rewrite" restructures a ramble into a clean, legible note.
+- **Speech-to-text model picker** — choose any OpenRouter transcription model from a
+  live-discovered list, type a custom model id, and a **Test** button that tells you if a
+  model actually works before you rely on it mid-recording.
+- Attachments and the memory vault are included in backup and restore.
+
+### Changed
+- Default speech-to-text model is now `openai/gpt-4o-mini-transcribe` (the previous default
+  was retired upstream); existing installs migrate automatically.
+
+### Fixed
+- **AI actions failing with "That model is unavailable"** — request bodies were silently
+  dropping required fields (`usage`/`reasoning`), so Clean-up and Extract were rejected by the
+  server even with a valid key. Fixed; both now stream real results.
+- AI errors now report the **real reason** instead of a blanket "model unavailable".
+- **Voice transcription** — the multipart upload wasn't RFC-7578 compliant and was rejected by
+  the server; real voice-to-text now works.
+- Model-picker rows (text + speech-to-text) that did nothing when tapped now open.
+- Nav bar overlapping content and stealing taps on Calendar & Diary; content no longer bleeds
+  under the floating nav bar.
+- Layout no longer breaks on very narrow / split-screen widths (verified down to 122dp).
+- "Delete forever" in Trash now asks for confirmation.
+- Grey theme is now visibly distinct from Dark; the theme picker is fully reachable.
+- Autosave no longer wipes a note's attachments; the "+" button translucency and spacing.
+
 ## [v2.0.0] - 2026-07-12 - The Redesign
 
 Major redesign, designed by a 4-lens design council and hardened by full code + UX audits.

@@ -2,7 +2,7 @@
 
 Personal AI-powered notes, diary and calendar for Android — local-first, with a custom paper-and-ink design system and your own OpenRouter key for the AI bits.
 
-![version](https://img.shields.io/badge/version-v2.0.0-8a5a44?style=flat-square)
+![version](https://img.shields.io/badge/version-v3.0.0-8a5a44?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-Android%2012%2B-3ddc84?style=flat-square&logo=android&logoColor=white)
 ![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 ![kotlin](https://img.shields.io/badge/Kotlin-2.1-7f52ff?style=flat-square&logo=kotlin&logoColor=white)
