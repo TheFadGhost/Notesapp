@@ -29,12 +29,34 @@ data class BackupFolder(val name: String)
 @Serializable
 data class BackupTag(val name: String, val color: Int)
 
+/**
+ * An attachment's metadata (M-A). The file bytes live in the ZIP at [zipPath]; on
+ * restore the [id]/[noteId]/[annotatedOfId] are remapped to freshly-assigned ids and
+ * the note bodies' `[[att:<id>]]` tokens are rewritten to match.
+ */
+@Serializable
+data class BackupAttachment(
+    val id: Long,
+    val noteId: Long,
+    val kind: String,
+    val displayName: String,
+    val mime: String,
+    val sizeBytes: Long,
+    val createdAt: Long,
+    val annotatedOfId: Long? = null,
+    val ocrText: String? = null,
+    val description: String? = null,
+    /** ZIP-relative path of the stored bytes, e.g. `attachments/3/uuid.jpg`. */
+    val zipPath: String
+)
+
 /** Everything exported, in memory. Contains no secrets. */
 @Serializable
 data class BackupData(
     val notes: List<BackupNote> = emptyList(),
     val folders: List<BackupFolder> = emptyList(),
-    val tags: List<BackupTag> = emptyList()
+    val tags: List<BackupTag> = emptyList(),
+    val attachments: List<BackupAttachment> = emptyList()
 )
 
 @Serializable
@@ -47,7 +69,8 @@ data class BackupManifest(
     val noteCount: Int,
     val folderCount: Int,
     val tagCount: Int,
-    val entries: List<ManifestEntry>
+    val entries: List<ManifestEntry>,
+    val attachmentCount: Int = 0
 )
 
 /** Result of reading a backup ZIP without committing it — drives the import preview. */
@@ -55,7 +78,9 @@ data class BackupPreview(
     val manifest: BackupManifest,
     val data: BackupData,
     /** Paths whose recomputed checksum did not match the manifest. Empty == intact. */
-    val checksumMismatches: List<String>
+    val checksumMismatches: List<String>,
+    /** ZIP-relative path -> file bytes for attachments, applied on restore. */
+    val attachmentFiles: Map<String, ByteArray> = emptyMap()
 ) {
     val isIntact: Boolean get() = checksumMismatches.isEmpty()
 }

@@ -19,6 +19,7 @@ object BackupSerializer {
     private const val META_PATH = "metadata.json"
     private const val MANIFEST_PATH = "manifest.json"
     private const val NOTES_DIR = "notes/"
+    private const val ATTACHMENTS_DIR = "attachments/"
 
     private val json = Json {
         prettyPrint = true
@@ -26,8 +27,17 @@ object BackupSerializer {
         encodeDefaults = true
     }
 
-    /** Write [data] as a backup ZIP into [out]. [now] is the manifest timestamp. */
-    fun export(data: BackupData, out: OutputStream, now: Long) {
+    /**
+     * Write [data] as a backup ZIP into [out]. [now] is the manifest timestamp.
+     * [attachmentBytes] maps each attachment's [BackupAttachment.zipPath] to its file
+     * bytes; each is stored and checksummed so restore can rebuild the file on disk.
+     */
+    fun export(
+        data: BackupData,
+        out: OutputStream,
+        now: Long,
+        attachmentBytes: Map<String, ByteArray> = emptyMap()
+    ) {
         val entries = mutableListOf<ManifestEntry>()
         ZipOutputStream(out).use { zip ->
             // One markdown file per note.
@@ -36,6 +46,12 @@ object BackupSerializer {
                 val bytes = renderNoteMarkdown(note).toByteArray(Charsets.UTF_8)
                 writeEntry(zip, path, bytes)
                 entries += ManifestEntry(path, sha256(bytes), bytes.size.toLong())
+            }
+            // Attachment files (M-A) — bytes verbatim under attachments/<noteId>/<uuid>.
+            for (att in data.attachments) {
+                val bytes = attachmentBytes[att.zipPath] ?: continue
+                writeEntry(zip, att.zipPath, bytes)
+                entries += ManifestEntry(att.zipPath, sha256(bytes), bytes.size.toLong())
             }
             // Full structured metadata (source of truth for restore).
             val metaBytes = json.encodeToString(BackupData.serializer(), data).toByteArray(Charsets.UTF_8)
@@ -48,7 +64,8 @@ object BackupSerializer {
                 noteCount = data.notes.size,
                 folderCount = data.folders.size,
                 tagCount = data.tags.size,
-                entries = entries
+                entries = entries,
+                attachmentCount = data.attachments.size
             )
             val manifestBytes = json.encodeToString(BackupManifest.serializer(), manifest)
                 .toByteArray(Charsets.UTF_8)
@@ -84,7 +101,9 @@ object BackupSerializer {
             actual == null || sha256(actual) != e.sha256
         }.map { it.path }
 
-        return BackupPreview(manifest, data, mismatches)
+        val attachmentFiles = files.filterKeys { it.startsWith(ATTACHMENTS_DIR) }
+
+        return BackupPreview(manifest, data, mismatches, attachmentFiles)
     }
 
     /** A note serialised as human-readable markdown with a small front-matter block. */

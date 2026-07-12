@@ -74,7 +74,10 @@ class AudioAttachmentRepository @Inject constructor(
     suspend fun sweepOrphans(): Int {
         val referenced = dao.all().flatMap { it.segments }.toSet()
         val root = AudioStorage.root(context.filesDir)
+        // Only the recorder's own `.m4a` files are ours to sweep. Image/file attachments
+        // (M-A) share this per-note root; their orphans belong to AttachmentRepository.
         val orphans = AudioStorage.findOrphans(root, referenced)
+            .filter { it.extension.equals("m4a", ignoreCase = true) }
         orphans.forEach { runCatching { it.delete() } }
         // Tidy up now-empty note dirs.
         runCatching {

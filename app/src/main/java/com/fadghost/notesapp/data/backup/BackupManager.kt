@@ -20,11 +20,12 @@ class BackupManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val repository: NotesRepository
 ) {
-    /** Export every note to the user-picked ZIP [target]. Returns note count. */
+    /** Export every note (and its attachment files) to the user-picked ZIP [target]. */
     suspend fun export(target: Uri): Int = withContext(Dispatchers.IO) {
         val data = repository.buildBackup()
+        val attachmentBytes = repository.exportAttachmentBytes()
         context.contentResolver.openOutputStream(target)?.use { out ->
-            BackupSerializer.export(data, out, now = System.currentTimeMillis())
+            BackupSerializer.export(data, out, now = System.currentTimeMillis(), attachmentBytes = attachmentBytes)
         } ?: error("Could not open $target for writing")
         data.notes.size
     }
@@ -37,6 +38,6 @@ class BackupManager @Inject constructor(
 
     /** Commit a previewed backup with the chosen [mode]. */
     suspend fun restore(preview: BackupPreview, mode: ImportMode) = withContext(Dispatchers.IO) {
-        repository.importBackup(preview.data, mode)
+        repository.importBackup(preview.data, mode, preview.attachmentFiles)
     }
 }

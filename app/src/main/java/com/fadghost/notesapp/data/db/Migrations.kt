@@ -101,3 +101,34 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
         NotesFts.migrateToFts4(db)
     }
 }
+
+/**
+ * v6 -> v7 (M-A): adds the [com.fadghost.notesapp.data.db.entity.Attachment] table —
+ * one row per ingested image/file, referenced inline by the `[[att:<id>]]` body token.
+ * Purely additive; a FK to `Note` with ON DELETE CASCADE drops rows when a note is
+ * hard-deleted, and the trash-purge orphan pass removes the files. `annotatedOfId`
+ * links an annotated copy to its original; `ocrText`/`description` are filled later by
+ * the silent image-index job. Column set / indices mirror the entity exactly so Room's
+ * post-migration validation passes.
+ */
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `attachments` (" +
+                "`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, " +
+                "`noteId` INTEGER NOT NULL, " +
+                "`kind` TEXT NOT NULL, " +
+                "`path` TEXT NOT NULL, " +
+                "`displayName` TEXT NOT NULL, " +
+                "`mime` TEXT NOT NULL, " +
+                "`sizeBytes` INTEGER NOT NULL, " +
+                "`createdAt` INTEGER NOT NULL, " +
+                "`annotatedOfId` INTEGER, " +
+                "`ocrText` TEXT, " +
+                "`description` TEXT, " +
+                "FOREIGN KEY(`noteId`) REFERENCES `Note`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_attachments_noteId` ON `attachments` (`noteId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_attachments_annotatedOfId` ON `attachments` (`annotatedOfId`)")
+    }
+}

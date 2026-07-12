@@ -7,6 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.fadghost.notesapp.data.ai.cost.AiCallCost
 import com.fadghost.notesapp.data.ai.model.CachedModel
 import com.fadghost.notesapp.data.db.dao.AiCostDao
+import com.fadghost.notesapp.data.db.dao.AttachmentDao
 import com.fadghost.notesapp.data.db.dao.AudioAttachmentDao
 import com.fadghost.notesapp.data.db.dao.CachedModelDao
 import com.fadghost.notesapp.data.db.dao.DiaryDao
@@ -15,6 +16,7 @@ import com.fadghost.notesapp.data.db.dao.FolderDao
 import com.fadghost.notesapp.data.db.dao.NoteDao
 import com.fadghost.notesapp.data.db.dao.ReminderDao
 import com.fadghost.notesapp.data.db.dao.TagDao
+import com.fadghost.notesapp.data.db.entity.Attachment
 import com.fadghost.notesapp.data.db.entity.AudioAttachment
 import com.fadghost.notesapp.data.db.entity.DiaryEntry
 import com.fadghost.notesapp.data.db.entity.Event
@@ -35,9 +37,10 @@ import com.fadghost.notesapp.data.db.entity.Tag
         Reminder::class,
         AiCallCost::class,
         CachedModel::class,
-        AudioAttachment::class
+        AudioAttachment::class,
+        Attachment::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -51,6 +54,7 @@ abstract class NotesDatabase : RoomDatabase() {
     abstract fun aiCostDao(): AiCostDao
     abstract fun cachedModelDao(): CachedModelDao
     abstract fun audioAttachmentDao(): AudioAttachmentDao
+    abstract fun attachmentDao(): AttachmentDao
 
     companion object {
         const val NAME = "notes.db"

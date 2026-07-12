@@ -2,16 +2,20 @@ package com.fadghost.notesapp.data.repo
 
 import android.content.Context
 import androidx.room.withTransaction
+import com.fadghost.notesapp.data.attach.AttachmentStorage
+import com.fadghost.notesapp.data.backup.BackupAttachment
 import com.fadghost.notesapp.data.backup.BackupData
 import com.fadghost.notesapp.data.backup.BackupFolder
 import com.fadghost.notesapp.data.backup.BackupNote
 import com.fadghost.notesapp.data.backup.BackupTag
 import com.fadghost.notesapp.data.backup.ImportMode
 import com.fadghost.notesapp.data.db.NotesDatabase
+import com.fadghost.notesapp.data.db.dao.AttachmentDao
 import com.fadghost.notesapp.data.db.dao.FolderDao
 import com.fadghost.notesapp.data.db.dao.NoteDao
 import com.fadghost.notesapp.data.db.dao.NoteTagRow
 import com.fadghost.notesapp.data.db.dao.TagDao
+import com.fadghost.notesapp.data.db.entity.Attachment
 import com.fadghost.notesapp.data.db.entity.Folder
 import com.fadghost.notesapp.data.db.entity.Note
 import com.fadghost.notesapp.data.db.entity.NoteTagCrossRef
@@ -37,6 +41,7 @@ class NotesRepository @Inject constructor(
     private val noteDao: NoteDao,
     private val tagDao: TagDao,
     private val folderDao: FolderDao,
+    private val attachmentDao: AttachmentDao,
     @ApplicationContext private val context: Context
 ) {
     // --- Observation ------------------------------------------------------------
@@ -185,6 +190,7 @@ class NotesRepository @Inject constructor(
 
     suspend fun buildBackup(): BackupData {
         val notes = noteDao.allForExport()
+        val exportedIds = notes.map { it.id }.toHashSet()
         val folders = folderDao.all()
         val folderById = folders.associateBy { it.id }
         val backupNotes = notes.map { n ->
@@ -200,15 +206,49 @@ class NotesRepository @Inject constructor(
                 tags = tagDao.tagsForNote(n.id).map { it.name }
             )
         }
+        val backupAttachments = attachmentDao.all()
+            .filter { it.noteId in exportedIds }
+            .map { a -> BackupAttachment(
+                id = a.id,
+                noteId = a.noteId,
+                kind = a.kind,
+                displayName = a.displayName,
+                mime = a.mime,
+                sizeBytes = a.sizeBytes,
+                createdAt = a.createdAt,
+                annotatedOfId = a.annotatedOfId,
+                ocrText = a.ocrText,
+                description = a.description,
+                zipPath = attachmentZipPath(a.noteId, a.path)
+            ) }
         return BackupData(
             notes = backupNotes,
             folders = folders.map { BackupFolder(it.name) },
-            tags = tagDao.all().map { BackupTag(it.name, it.color) }
+            tags = tagDao.all().map { BackupTag(it.name, it.color) },
+            attachments = backupAttachments
         )
     }
 
+    /** ZIP-relative path -> file bytes for every exported attachment (M-A). */
+    suspend fun exportAttachmentBytes(): Map<String, ByteArray> = withContext(Dispatchers.IO) {
+        val exportedIds = noteDao.allForExport().map { it.id }.toHashSet()
+        attachmentDao.all()
+            .filter { it.noteId in exportedIds }
+            .mapNotNull { a ->
+                val bytes = runCatching { File(a.path).readBytes() }.getOrNull() ?: return@mapNotNull null
+                attachmentZipPath(a.noteId, a.path) to bytes
+            }.toMap()
+    }
+
+    private fun attachmentZipPath(noteId: Long, path: String): String =
+        "attachments/$noteId/${File(path).name}"
+
     /** Apply an imported backup. REPLACE wipes existing notes first; MERGE appends. */
-    suspend fun importBackup(data: BackupData, mode: ImportMode) {
+    suspend fun importBackup(
+        data: BackupData,
+        mode: ImportMode,
+        attachmentFiles: Map<String, ByteArray> = emptyMap()
+    ) {
         db.withTransaction {
             if (mode == ImportMode.REPLACE) {
                 noteDao.allForExport().forEach { noteDao.hardDelete(it.id) }
@@ -221,6 +261,7 @@ class NotesRepository @Inject constructor(
             data.tags.forEach { tagIds[it.name] = createTag(it.name, it.color) }
 
             val now = System.currentTimeMillis()
+            val noteIdMap = HashMap<Long, Long>() // old backup note id -> new id
             data.notes.forEach { bn ->
                 val folderId = bn.folderName?.let { folderIds[it] ?: createFolder(it) }
                 val newId = saveNote(
@@ -236,11 +277,92 @@ class NotesRepository @Inject constructor(
                         folderId = folderId
                     )
                 )
+                noteIdMap[bn.id] = newId
                 bn.tags.forEach { tagName ->
                     val tid = tagIds[tagName] ?: createTag(tagName, 0).also { tagIds[tagName] = it }
                     tagDao.link(NoteTagCrossRef(newId, tid))
                 }
             }
+
+            // Restore attachment files + rows, remapping every id (M-A). Note bodies'
+            // `[[att:<id>]]` tokens are rewritten so they still point at the right row.
+            if (data.attachments.isNotEmpty()) {
+                restoreAttachments(data, attachmentFiles, noteIdMap, now)
+            }
+        }
+    }
+
+    /** Rebuild attachment files + rows and repoint note tokens; called inside the txn. */
+    private suspend fun restoreAttachments(
+        data: BackupData,
+        attachmentFiles: Map<String, ByteArray>,
+        noteIdMap: Map<Long, Long>,
+        now: Long
+    ) {
+        val attIdMap = HashMap<Long, Long>() // old attachment id -> new id
+        val notesWithAttachments = HashSet<Long>()
+        for (ba in data.attachments) {
+            val newNoteId = noteIdMap[ba.noteId] ?: continue
+            val bytes = attachmentFiles[ba.zipPath] ?: continue
+            val ext = AttachmentStorage.extFor(ba.displayName, ba.mime)
+            val file = AttachmentStorage.newFile(AttachmentStorage.noteDir(context.filesDir, newNoteId), ext)
+            runCatching { file.writeBytes(bytes) }
+            val newId = attachmentDao.insert(
+                Attachment(
+                    id = 0,
+                    noteId = newNoteId,
+                    kind = ba.kind,
+                    path = file.absolutePath,
+                    displayName = ba.displayName,
+                    mime = ba.mime,
+                    sizeBytes = ba.sizeBytes.takeIf { it > 0 } ?: bytes.size.toLong(),
+                    createdAt = ba.createdAt.takeIf { it > 0 } ?: now,
+                    annotatedOfId = null, // patched in the second pass once all ids are known
+                    ocrText = ba.ocrText,
+                    description = ba.description
+                )
+            )
+            attIdMap[ba.id] = newId
+            notesWithAttachments += newNoteId
+        }
+        // Second pass: repoint annotatedOfId now that every id is mapped.
+        for (ba in data.attachments) {
+            val newId = attIdMap[ba.id] ?: continue
+            val newAnnotatedOf = ba.annotatedOfId?.let { attIdMap[it] } ?: continue
+            attachmentDao.byId(newId)?.let { attachmentDao.update(it.copy(annotatedOfId = newAnnotatedOf)) }
+        }
+        // Rewrite `[[att:<old>]]` -> `[[att:<new>]]` in each restored note body.
+        if (attIdMap.isNotEmpty()) {
+            val token = Regex("""\[\[att:(\d+)]]""")
+            for (bn in data.notes) {
+                val newNoteId = noteIdMap[bn.id] ?: continue
+                if (!token.containsMatchIn(bn.body)) {
+                    if (newNoteId in notesWithAttachments) reindexBodyFts(newNoteId)
+                    continue
+                }
+                val rewritten = token.replace(bn.body) { m ->
+                    val mapped = attIdMap[m.groupValues[1].toLong()]
+                    if (mapped != null) "[[att:$mapped]]" else m.value
+                }
+                if (rewritten != bn.body) {
+                    noteDao.getById(newNoteId)?.let { note ->
+                        noteDao.update(note.copy(body = rewritten))
+                        syncFts(newNoteId, note.title, rewritten)
+                    }
+                } else if (newNoteId in notesWithAttachments) {
+                    reindexBodyFts(newNoteId)
+                }
+            }
+        }
+    }
+
+    /** Re-fold a note's FTS row (title/body + attachment index text) inside the txn. */
+    private fun reindexBodyFts(noteId: Long) {
+        // noteDao.getById is suspend; caller is already suspend and inside the txn.
+        // Use a lightweight raw read to avoid changing signatures.
+        val wdb = db.openHelper.writableDatabase
+        wdb.query("SELECT title, body FROM Note WHERE id = ?", arrayOf<Any>(noteId)).use { c ->
+            if (c.moveToNext()) syncFts(noteId, c.getString(0) ?: "", c.getString(1) ?: "")
         }
     }
 
@@ -249,10 +371,42 @@ class NotesRepository @Inject constructor(
     private fun syncFts(id: Long, title: String, body: String) {
         val wdb = db.openHelper.writableDatabase
         wdb.execSQL("DELETE FROM note_fts WHERE rowid = ?", arrayOf<Any>(id))
+        // Fold any image OCR / description text (M-A P7) into the body column so a note
+        // is findable by what its images say. Stored markdown-stripped, same as body.
+        val indexed = Markdown.strip(body) + attachmentIndexText(id)
         wdb.execSQL(
             "INSERT INTO note_fts(rowid, title, body) VALUES (?, ?, ?)",
-            arrayOf<Any>(id, Markdown.stripInline(title), Markdown.strip(body))
+            arrayOf<Any>(id, Markdown.stripInline(title), indexed)
         )
+    }
+
+    /**
+     * Re-fold a note's searchable text (M-A): re-reads the note plus its attachment
+     * OCR/description and rewrites the FTS row. Called after an image-index result lands
+     * or an attachment is removed, so search reflects the current image text.
+     */
+    suspend fun reindexNoteFts(noteId: Long) = withContext(Dispatchers.IO) {
+        val note = noteDao.getById(noteId) ?: return@withContext
+        db.withTransaction { syncFts(noteId, note.title, note.body) }
+    }
+
+    /** Concatenated, markdown-stripped OCR + description for a note's images (may be ""). */
+    private fun attachmentIndexText(id: Long): String {
+        val wdb = db.openHelper.writableDatabase
+        val sb = StringBuilder()
+        runCatching {
+            wdb.query(
+                "SELECT COALESCE(ocrText, '') || ' ' || COALESCE(description, '') " +
+                    "FROM attachments WHERE noteId = ?",
+                arrayOf<Any>(id)
+            ).use { c ->
+                while (c.moveToNext()) {
+                    val t = c.getString(0)
+                    if (!t.isNullOrBlank()) sb.append(' ').append(t)
+                }
+            }
+        }
+        return sb.toString()
     }
 
     private fun deleteFts(id: Long) {
