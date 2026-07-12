@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,7 +50,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.LaunchedEffect
@@ -117,20 +120,33 @@ fun AppShell(
         }
     }
 
-    // Journaling-nudge deep link (PLAN.md §7): jump to the Diary tab when requested.
+    // Journaling-nudge deep link (PLAN.md §7): jump to the Diary tab on a genuinely NEW
+    // nudge only. The last-handled counter is rememberSaveable so that, after an Activity
+    // recreation, a still-elevated request count is NOT replayed onto the restored tab —
+    // that replay is what used to bounce the user off Settings after a theme switch (P0-3).
     val diaryRequests by diaryNav.openDiaryRequests.collectAsStateWithLifecycle()
+    var handledDiaryRequests by rememberSaveable { mutableStateOf(0) }
     LaunchedEffect(diaryRequests) {
-        if (diaryRequests > 0) {
+        if (diaryRequests > handledDiaryRequests) {
+            handledDiaryRequests = diaryRequests
             selectedTab = NavTab.DIARY
             editorNoteId = null
         }
     }
 
-    // Reminder-notification deep link (PLAN.md §8): jump to Calendar; the screen
-    // then opens the item's edit sheet from CalendarDeepLink.
+    // Reminder-notification deep link (PLAN.md §8): jump to Calendar; the screen then
+    // opens the item's edit sheet from CalendarDeepLink. Same recreation-replay guard as
+    // above (P0-3): a reminder id still sitting in the relay (e.g. its reminder was
+    // deleted so CalendarScreen never cleared it) must not re-navigate after a recreation.
     val calendarDeepLink by CalendarDeepLink.pendingReminderId.collectAsStateWithLifecycle()
+    var handledReminderId by rememberSaveable { mutableStateOf(-1L) }
     LaunchedEffect(calendarDeepLink) {
-        if (calendarDeepLink != null) {
+        val id = calendarDeepLink
+        if (id == null) {
+            // Relay cleared → allow the same id to re-navigate if tapped again later.
+            handledReminderId = -1L
+        } else if (id != handledReminderId) {
+            handledReminderId = id
             selectedTab = NavTab.CALENDAR
             editorNoteId = null
         }
@@ -223,24 +239,44 @@ fun AppShell(
         }
 
         // Bottom fade: scrolling content dissolves into the background before it reaches
-        // the translucent floating pill, instead of showing through it (bug 5). Drawn over
+        // the translucent floating pill, instead of showing through it (P0-1). Drawn over
         // the content but under the pill/FAB, and shell-wide so every tab is treated the
-        // same. Hidden with the pill while the editor overlay is up.
+        // same. The gradient is fully OPAQUE from the pill's top edge downward (earlier it
+        // was still ~60% transparent there, so the week-strip / diary hint bled through the
+        // pill); the soft transition now lives entirely ABOVE the pill. Hidden with the
+        // pill while the editor overlay is up.
+        val pillBandHeight = navInset + NavPillBottomMargin + NavPillHeight
         if (editorNoteId == null) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(navPillClearance)
+                    .height(navPillClearance + 44.dp)
                     .background(
-                        // Soft at the top, fully opaque well before the pill so the pill's
-                        // band never shows scrolling content through it.
                         Brush.verticalGradient(
                             0f to Color.Transparent,
-                            0.45f to tokens.colors.background,
+                            0.28f to tokens.colors.background,
                             1f to tokens.colors.background
                         )
                     )
+            )
+            // Tap sink over the pill's touch band: content scrolled transiently behind the
+            // translucent pill (e.g. the Calendar week strip) must not steal taps aimed at
+            // the nav tabs (P0-1b). The pill + FAB are drawn AFTER this, so they still win
+            // their own footprint; only the gaps/margins beside them are absorbed. At rest,
+            // content clears this band (contentPadding == navPillClearance), so no real row
+            // is ever blocked.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(pillBandHeight)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    )
+                    .clearAndSetSemantics {}
             )
         }
 
@@ -263,10 +299,14 @@ fun AppShell(
             }
         )
 
-        // Floating nav pill + bottom-right capture FAB as ONE centred cluster (bug 1): the
-        // FAB sits on the pill's visual row, a fixed 12dp gap guarantees they never overlap
-        // at any width, and the FAB keeps its layout slot when it hides-on-scroll so the
-        // pill never shifts. Both fade out while the editor is open.
+        // Floating nav pill + bottom-right capture FAB as ONE centred cluster: the FAB
+        // sits on the pill's visual row, a fixed gap guarantees they never overlap at any
+        // width, and the FAB's slot is ALWAYS reserved — even on Settings where the FAB is
+        // hidden — so the pill's horizontal anchor is identical on every tab (P2-6, was
+        // shifting ~95px). Tab slots are computed from the screen width so all four tabs
+        // fit and shrink evenly instead of a tab dropping off at 320dp (P0-2). Both fade
+        // out while the editor is open.
+        val slotWidth = navTabSlotWidth(LocalConfiguration.current.screenWidthDp.dp)
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -282,6 +322,7 @@ fun AppShell(
             ) {
                 AuraNavBar(
                     selected = selectedTab,
+                    slotWidth = slotWidth,
                     onSelect = { tab ->
                         // Re-tap the active tab → scroll that screen to the top (V2-SPEC item 13).
                         if (tab == selectedTab) ShellSignals.send(tab, ShellSignal.SCROLL_TOP)
@@ -289,24 +330,29 @@ fun AppShell(
                     }
                 )
             }
-            // FAB hidden on Settings and while the editor is open.
-            if (editorNoteId == null && fabMode.visible) {
-                Spacer(Modifier.width(12.dp))
-                ContextualFab(
-                    panelOpen = captureVisible,
-                    hidden = fabHidden,
-                    onPrimary = {
-                        if (captureVisible) {
-                            captureVisible = false
-                        } else when (fabMode) {
-                            FabMode.CAPTURE_PANEL -> captureVisible = true
-                            FabMode.DIARY_TODAY -> ShellSignals.send(NavTab.DIARY, ShellSignal.FAB_PRIMARY)
-                            FabMode.CALENDAR_NEW -> ShellSignals.send(NavTab.CALENDAR, ShellSignal.FAB_PRIMARY)
-                            FabMode.HIDDEN -> {}
-                        }
-                    },
-                    onLongPress = { captureVisible = true }
-                )
+            // Reserve the FAB's slot on every tab (kept empty on Settings) so the pill never
+            // shifts sideways between tabs. The FAB itself only draws when the tab has one.
+            if (editorNoteId == null) {
+                Spacer(Modifier.width(NavFabGap))
+                Box(Modifier.size(NavFabSize), contentAlignment = Alignment.Center) {
+                    if (fabMode.visible) {
+                        ContextualFab(
+                            panelOpen = captureVisible,
+                            hidden = fabHidden,
+                            onPrimary = {
+                                if (captureVisible) {
+                                    captureVisible = false
+                                } else when (fabMode) {
+                                    FabMode.CAPTURE_PANEL -> captureVisible = true
+                                    FabMode.DIARY_TODAY -> ShellSignals.send(NavTab.DIARY, ShellSignal.FAB_PRIMARY)
+                                    FabMode.CALENDAR_NEW -> ShellSignals.send(NavTab.CALENDAR, ShellSignal.FAB_PRIMARY)
+                                    FabMode.HIDDEN -> {}
+                                }
+                            },
+                            onLongPress = { captureVisible = true }
+                        )
+                    }
+                }
             }
         }
 
@@ -353,9 +399,11 @@ fun AppShell(
             }
         }
 
-        // Draft crash-recovery prompt (PLAN.md §6): only on the list, when unsaved text exists.
+        // Draft crash-recovery prompt (PLAN.md §6): only on the Notes list, when unsaved
+        // text exists. Gated to the Notes tab so it never draws over another tab's heading
+        // — it used to flash over the "Calendar" title on entry before settling (P2-7).
         val draft = recoverableDraft
-        if (editorNoteId == null && draft != null && !draft.isEmpty) {
+        if (editorNoteId == null && selectedTab == NavTab.NOTES && draft != null && !draft.isEmpty) {
             RestoreDraftBanner(
                 title = draft.title.ifBlank { "Untitled note" },
                 onRestore = { restoringDraft = true; editorNoteId = draft.noteId },
