@@ -1,38 +1,97 @@
 # Notesapp
 
-Personal AI-powered notes, diary and calendar for Android. Local-first, custom "Aura" UI (no stock Android components), OpenRouter AI integration.
+Personal AI-powered notes, diary and calendar for Android — local-first, with a custom paper-and-ink design system and your own OpenRouter key for the AI bits.
+
+![version](https://img.shields.io/badge/version-v2.0.0-8a5a44?style=flat-square)
+![platform](https://img.shields.io/badge/platform-Android%2012%2B-3ddc84?style=flat-square&logo=android&logoColor=white)
+![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
+![kotlin](https://img.shields.io/badge/Kotlin-2.1-7f52ff?style=flat-square&logo=kotlin&logoColor=white)
+![compose](https://img.shields.io/badge/Jetpack%20Compose-custom%20UI-4285f4?style=flat-square&logo=jetpackcompose&logoColor=white)
+
+Notesapp is a single-user Android app I built for myself: notes, a diary and a calendar in one place, with optional AI clean-up and reminder extraction through OpenRouter, voice-to-text capture, and a hand-tuned "Aura" design system instead of stock Material widgets. It's distributed as a sideloaded APK, not through the Play Store.
 
 ## Features
 
-- **Notes** — live-markdown editor (headings, bold/italic, checklists, smart lists), keyboard-docked formatting toolbar, undo/redo, draft crash-recovery, full-text search with highlights, tags & folders (colors, merge), pin/archive, 30-day trash with undo everywhere.
-- **AI (bring your own OpenRouter key)** — ✨ Clean-up: streams a de-filler'd, structured rewrite of any ramble into a before/after sheet. 📅 Extract actions: pulls events/reminders/todos out of note text as confirm/deny cards with edit + free-text revision. Offline queueing, per-call cost tracking, model picker (default `deepseek/deepseek-v4-flash`).
-- **Voice rambles** — record (auto-split 5-min AAC segments), transcribe via OpenRouter STT (default `qwen/qwen3-asr-flash-2026-02-10`), transcript lands in the note with a circular audio chip → popover player. Optional auto clean-up.
-- **Calendar & reminders** — custom springy month/week/agenda views, exact alarms that survive reboots, Done/Snooze notification actions, battery-killer warnings, natural-language quick-add ("gym tomorrow 7am") parsed locally.
-- **Diary** — day-per-entry with mood, streaks + heat-map, "on this day", rotating prompts, optional biometric gate, daily nudge.
-- **Themes & feel** — Light / Dark / Pure Black (AMOLED) / Grey + 8 accents, circular-reveal theme switching, spring physics everywhere, haptics vocabulary, reduce-motion support, 120 Hz-friendly.
-- **Capture fast** — quick-settings tile, app-icon shortcuts, share/selected-text into a note, translucent "+" capture sheet.
-- **Private** — everything stored on-device; only network traffic is your own OpenRouter calls. Checksummed ZIP backup/restore (manual + scheduled). API key kept in Android Keystore, never in backups or logs.
+**Notes**
+- Live-markdown editor (headings, bold/italic, checklists, smart lists) with a keyboard-docked formatting toolbar
+- Undo/redo, draft crash-recovery
+- Full-text search with highlights
+- Tags & folders (colors, merge), pin/archive
+- 30-day trash with undo everywhere
+
+**AI (bring your own OpenRouter key)**
+- Clean-up: streams a de-filler'd, structured rewrite of any ramble into a before/after sheet
+- Extract actions: pulls events/reminders/todos out of note text as confirm/deny cards with edit + free-text revision
+- Offline queueing, per-call cost tracking, model picker (default `deepseek/deepseek-v4-flash`)
+
+**Voice**
+- Record voice rambles (auto-split 5-minute AAC segments)
+- Transcribe via OpenRouter STT (default `qwen/qwen3-asr-flash-2026-02-10`)
+- Transcript lands in the note with a circular audio chip and popover player
+- Optional auto clean-up on the transcript
+
+**Calendar & reminders**
+- Custom springy month/week/agenda views
+- Exact alarms that survive reboots, with Done/Snooze notification actions
+- Natural-language quick-add ("gym tomorrow 7am") parsed locally
+- Battery-killer warnings for reliable delivery
+
+**Diary**
+- Day-per-entry with mood, streaks and a heat-map
+- "On this day", rotating prompts
+- Optional biometric gate, daily nudge
+
+**Design & themes**
+- Light / Dark / Pure Black (AMOLED) / Grey, each with 8 accents
+- Circular-reveal theme switching, spring physics throughout, haptics vocabulary
+- Editorial typography (Fraunces + Hanken Grotesk), warm paper-layer depth system
+- Press feedback on every control, reduce-motion support, 120 Hz-friendly
+
+**Capture fast**
+- Quick-settings tile, app-icon shortcuts, share/selected-text into a note
+- Bottom-right contextual FAB with an anchored capture panel
+
+**Privacy**
+- Everything stored on-device; the only network traffic is your own OpenRouter calls
+- Checksummed ZIP backup/restore (manual + scheduled)
+- API key kept in Android Keystore, never written to backups or logs
+
+## Screenshots
+
+| Notes | Capture panel | Diary |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/notes.png" width="240"> | <img src="docs/screenshots/capture-panel.png" width="240"> | <img src="docs/screenshots/diary.png" width="240"> |
+
+| Calendar | Settings |
+|:---:|:---:|
+| <img src="docs/screenshots/calendar.png" width="240"> | <img src="docs/screenshots/settings.png" width="240"> |
 
 ## Install
 
 1. Download the latest `app-release.apk` from [Releases](../../releases).
 2. Open it on your phone; allow "install unknown apps" for your browser/files app when prompted.
-3. Android may show a Play Protect warning (normal for sideloaded apps) — choose "Install anyway".
-4. Open **Settings → AI** in the app and paste your [OpenRouter API key](https://openrouter.ai/keys).
+3. Android may show a Play Protect warning — this is normal for sideloaded apps not distributed through the Play Store; choose "Install anyway".
+4. Open **Settings → AI** in the app and paste your own [OpenRouter API key](https://openrouter.ai/keys). The app doesn't work without one — there's no bundled key or backend.
 
 ## Build from source
 
-Requires JDK 17 and the Android SDK (API 36).
+Requires JDK 17 and Android SDK 36.
 
 ```
 ./gradlew assembleDebug
 ./gradlew testDebugUnitTest
 ```
 
-Release signing reads a `keystore.properties` outside the repo (see `app/build.gradle.kts`); CI builds are unsigned by design.
+Release builds are signed using a `keystore.properties` file kept outside the repo. Point Gradle at it with the `NOTESAPP_KEYSTORE_PROPS` environment variable (see `app/build.gradle.kts`); CI builds are unsigned by design.
 
-## Stack
+## Tech stack
 
-Kotlin 2.1 · Jetpack Compose (custom design system, no Material widgets) · Room + FTS5 · Hilt · Ktor · WorkManager · minSdk 31 / targetSdk 36
+Kotlin 2.1 · Jetpack Compose (custom design system, no Material widgets) · Room + FTS4 · Hilt · Ktor · WorkManager · minSdk 31 / targetSdk 36
 
-Spec and roadmap: [PLAN.md](PLAN.md)
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes. Spec and roadmap live in [PLAN.md](PLAN.md).
+
+## License
+
+[MIT](LICENSE)
