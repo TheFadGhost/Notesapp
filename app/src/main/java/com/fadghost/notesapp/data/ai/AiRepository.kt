@@ -16,7 +16,10 @@ import com.fadghost.notesapp.alarm.ReminderAlarm
 import com.fadghost.notesapp.data.ai.parse.ActionExtractionParser
 import com.fadghost.notesapp.data.ai.parse.ExtractOutcome
 import com.fadghost.notesapp.data.ai.parse.JsonExtractor
+import com.fadghost.notesapp.data.ai.parse.MemoryExtractOutcome
+import com.fadghost.notesapp.data.ai.parse.MemoryExtractionParser
 import com.fadghost.notesapp.data.ai.parse.ProposedAction
+import com.fadghost.notesapp.data.memory.MemoryFormat
 import com.fadghost.notesapp.data.ai.text.Chunker
 import com.fadghost.notesapp.data.ai.text.TokenEstimator
 import com.fadghost.notesapp.data.db.dao.AiCostDao
@@ -54,6 +57,7 @@ class AiRepository @Inject constructor(
     private val alarm: ReminderAlarm
 ) {
     private val extractionParser = ActionExtractionParser()
+    private val memoryParser = MemoryExtractionParser()
     private val inserter = ActionInserter(eventDao, reminderDao, alarm)
 
     val hasKey: Flow<Boolean> = keyStore.hasKey
@@ -284,6 +288,80 @@ class AiRepository @Inject constructor(
         return (parsed as? ExtractOutcome.Success)?.items?.firstOrNull() ?: action
     }
 
+    // --- Rewrite (P4 REWRITE_LEGIBLE_V1, streaming into the before/after sheet) --
+
+    /**
+     * Stream a full restructure of a rambling note/transcript (V3-PROMPTS.md §1.5, P4).
+     * The verbatim [AiPrompts.REWRITE_LEGIBLE_V1] is the system prompt; today's date is a
+     * second system line so relative dates resolve (prompt rule 4). temp 0.4, max_tokens
+     * 8192, reasoning excluded. Cost recorded on completion.
+     */
+    fun rewriteStream(text: String, noteId: Long?, now: Long): Flow<OpenRouterClient.Stream> = flow {
+        val key = requireKey()
+        val model = prefs.textModel.first()
+        var usage: Usage? = null
+        val req = ChatRequest(
+            model = model,
+            messages = listOf(
+                ChatMessage.system(AiPrompts.REWRITE_LEGIBLE_V1),
+                ChatMessage.system(AiPrompts.todayContext(now, zone())),
+                ChatMessage.user(text)
+            ),
+            temperature = 0.4,
+            maxTokens = REWRITE_MAX_TOKENS,
+            reasoning = ReasoningRequest(exclude = true)
+        )
+        client.streamCleanup(key, req).collect { ev ->
+            if (ev is OpenRouterClient.Stream.Completed) usage = ev.usage
+            emit(ev)
+        }
+        recordCost(usage, model, FEATURE_REWRITE, noteId)
+    }
+
+    // --- Add to memory (P1 MEMORY_EXTRACT_V1, structured output) ----------------
+
+    /**
+     * Extract durable memory entries from [noteText] against the current [indexMd]
+     * (V3-PROMPTS.md §1.2, P1). Strict json_schema, temp 0.1, top_p 0.9, max_tokens 4096,
+     * reasoning excluded (client retries once without it on a 4xx param error). Uses the
+     * defensive parser + one re-ask on parse failure, exactly like Extract. The caller shows
+     * the results as confirm cards BEFORE anything is written to the vault.
+     */
+    suspend fun extractMemory(noteText: String, indexMd: String, noteId: Long?, now: Long): MemoryExtractOutcome {
+        val key = requireKey()
+        val model = prefs.textModel.first()
+        val context = contextLengthFor(model)
+        val truncated = truncateForExtract(noteText, context)
+        val source = noteId?.let { "note:$it" } ?: MemoryFormat.SOURCE_MANUAL
+        val user = AiPrompts.memoryExtractUser(truncated, indexMd, now, zone())
+
+        val first = runMemoryExtract(key, model, user, noteId)
+        var outcome = memoryParser.parse(first, now, source)
+        if (outcome is MemoryExtractOutcome.ParseFailure) {
+            val retry = runMemoryExtract(key, model, user + "\n\nReturn ONLY the JSON object, nothing else.", noteId)
+            outcome = memoryParser.parse(retry, now, source)
+        }
+        return outcome
+    }
+
+    private suspend fun runMemoryExtract(key: String, model: String, user: String, noteId: Long?): String {
+        val req = ChatRequest(
+            model = model,
+            messages = listOf(
+                ChatMessage.system(AiPrompts.MEMORY_EXTRACT_V1),
+                ChatMessage.user(user)
+            ),
+            temperature = 0.1,
+            topP = 0.9,
+            maxTokens = MEMORY_MAX_TOKENS,
+            reasoning = ReasoningRequest(exclude = true),
+            responseFormat = ResponseFormat.jsonSchema("memory_entries", AiPrompts.MEMORY_EXTRACT_SCHEMA, strict = true)
+        )
+        val res = client.complete(key, req)
+        recordCost(res.usage, model, FEATURE_MEMORY, noteId)
+        return res.content
+    }
+
     // --- Image indexing (M-A P7, silent background OCR/alt-text) -----------------
 
     /** Result of indexing one image; either field may be null/blank. */
@@ -386,6 +464,8 @@ class AiRepository @Inject constructor(
         const val FEATURE_CLEANUP = "cleanup"
         const val FEATURE_EXTRACT = "extract"
         const val FEATURE_IMAGE_INDEX = "image_index"
+        const val FEATURE_REWRITE = "rewrite"
+        const val FEATURE_MEMORY = "memory_extract"
 
         /** Vision model for image indexing (V3-PROMPTS.md §1.8 — image via chat completions). */
         const val IMAGE_INDEX_MODEL = "google/gemini-2.5-flash"
@@ -396,5 +476,11 @@ class AiRepository @Inject constructor(
 
         /** Clean-up rewrites may be long — give them extra headroom above the floor. */
         private const val CLEANUP_MAX_TOKENS = 4096
+
+        /** P1 MEMORY_EXTRACT_V1 (V3-PROMPTS.md §1.2 params). */
+        private const val MEMORY_MAX_TOKENS = 4096
+
+        /** P4 REWRITE_LEGIBLE_V1 (V3-PROMPTS.md §1.5 params — full-document rewrites). */
+        private const val REWRITE_MAX_TOKENS = 8192
     }
 }

@@ -33,6 +33,7 @@ data class ChatRequest(
     val messages: List<ChatMessage>,
     val stream: Boolean = false,
     val temperature: Double? = null,
+    @SerialName("top_p") val topP: Double? = null,
     @SerialName("max_tokens") val maxTokens: Int? = null,
     @SerialName("response_format") val responseFormat: ResponseFormat? = null,
     /**
