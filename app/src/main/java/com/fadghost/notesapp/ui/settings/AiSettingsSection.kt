@@ -66,11 +66,13 @@ fun AiSettingsSection(viewModel: AiSettingsViewModel = hiltViewModel()) {
     val textModel by viewModel.textModel.collectAsStateWithLifecycle()
     val sttModel by viewModel.sttModel.collectAsStateWithLifecycle()
     val models by viewModel.models.collectAsStateWithLifecycle()
+    val sttModels by viewModel.sttModels.collectAsStateWithLifecycle()
     val favorites by viewModel.favorites.collectAsStateWithLifecycle()
     val recents by viewModel.recents.collectAsStateWithLifecycle()
     val monthTotal by viewModel.monthTotal.collectAsStateWithLifecycle()
     val lastCall by viewModel.lastCall.collectAsStateWithLifecycle()
     val status by viewModel.status.collectAsStateWithLifecycle()
+    val sttTestStatus by viewModel.sttTestStatus.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val autoCleanTranscript by viewModel.autoCleanTranscript.collectAsStateWithLifecycle()
 
@@ -143,7 +145,17 @@ fun AiSettingsSection(viewModel: AiSettingsViewModel = hiltViewModel()) {
         // --- Models ---
         ModelRow("Text model", textModel) { picker = PickerTarget.TEXT }
         DividerLineAi()
-        ModelRow("Speech-to-text model", sttModel, subtitle = "Used for voice notes") { picker = PickerTarget.STT }
+        ModelRow(
+            "Speech-to-text model",
+            sttModel,
+            subtitle = "Used for voice notes",
+            onTest = { viewModel.testSttModel(sttModel) },
+            testBusy = busy
+        ) { picker = PickerTarget.STT }
+        sttTestStatus?.let {
+            BasicText(it, style = AuraType.label.copy(color = tokens.colors.textPrimary))
+            Spacer(Modifier.height(4.dp))
+        }
 
         DividerLineAi()
 
@@ -189,15 +201,16 @@ fun AiSettingsSection(viewModel: AiSettingsViewModel = hiltViewModel()) {
         visible = target != null,
         title = if (sttMode) "Speech-to-text model" else "Text model",
         current = if (sttMode) sttModel else textModel,
-        // STT ids are a fixed hardcoded trio that never appear in /models (item 7); the
-        // text picker uses the cached /models list with favourites/recents/free-text.
-        models = if (sttMode) SttModels.LIST else models,
+        // STT: curated trio + live /models?output_modalities=transcription result
+        // (item 9), plus a custom-id free-text entry. Text: the cached /models list
+        // with favourites/recents/free-text.
+        models = if (sttMode) sttModels else models,
         favorites = favorites,
         recents = recents,
         busy = busy,
-        // STT has no /models source, no favourites, no free-text — just the three ids.
+        // STT has no favourites/recents grouping — just the (live) list + custom entry.
         sttMode = sttMode,
-        onRefresh = viewModel::refreshModels,
+        onRefresh = if (sttMode) viewModel::refreshSttModels else viewModel::refreshModels,
         onToggleFavorite = viewModel::toggleFavorite,
         onSelect = { id ->
             if (sttMode) viewModel.setSttModel(id) else viewModel.setTextModel(id)
@@ -207,19 +220,17 @@ fun AiSettingsSection(viewModel: AiSettingsViewModel = hiltViewModel()) {
     )
 }
 
-/** The exactly-three transcription models the STT picker offers (item 7). */
-private object SttModels {
-    val LIST: List<CachedModel> = listOf(
-        CachedModel(id = "openai/gpt-4o-mini-transcribe", name = "GPT-4o mini Transcribe"),
-        CachedModel(id = "openai/gpt-4o-transcribe", name = "GPT-4o Transcribe"),
-        CachedModel(id = "openai/whisper-1", name = "Whisper v1")
-    )
-}
-
 private enum class PickerTarget { TEXT, STT }
 
 @Composable
-private fun ModelRow(label: String, value: String, subtitle: String? = null, onClick: () -> Unit) {
+private fun ModelRow(
+    label: String,
+    value: String,
+    subtitle: String? = null,
+    onTest: (() -> Unit)? = null,
+    testBusy: Boolean = false,
+    onClick: () -> Unit
+) {
     val tokens = Aura.tokens
     val interaction = remember { MutableInteractionSource() }
     Row(
@@ -235,6 +246,13 @@ private fun ModelRow(label: String, value: String, subtitle: String? = null, onC
             BasicText(label, style = AuraType.body.copy(color = tokens.colors.textPrimary))
             BasicText(value, style = AuraType.label.copy(color = tokens.colors.accent))
             subtitle?.let { BasicText(it, style = AuraType.label.copy(color = tokens.colors.textSecondary)) }
+        }
+        // Validation QoL: lets a dead/renamed STT model id be caught in Settings
+        // instead of mid-recording (item 9). Nested inside the row's own clickable
+        // area but hit-tests first, so it doesn't also open the picker.
+        if (onTest != null) {
+            SoftButton(if (testBusy) "…" else "Test", filled = false, onClick = onTest)
+            Spacer(Modifier.size(8.dp))
         }
         AuraGlyph(Glyph.CHEVRON, tokens.colors.textSecondary, Modifier.size(18.dp))
     }
@@ -299,50 +317,56 @@ private fun ModelPickerSheet(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         BasicText(title, style = AuraType.titleLg.copy(color = tokens.colors.textPrimary))
                         Spacer(Modifier.weight(1f))
-                        // No /models source for transcription — the trio is fixed.
-                        if (!sttMode) SoftButton(if (busy) "…" else "Refresh", filled = false, onClick = onRefresh)
+                        // STT: refreshes from /models?output_modalities=transcription (item 9).
+                        SoftButton(if (busy) "…" else "Refresh", filled = false, onClick = onRefresh)
                     }
                     Spacer(Modifier.height(12.dp))
 
                     if (sttMode) {
                         BasicText(
-                            "Transcription models OpenRouter supports. Cheapest first.",
+                            "Curated + live transcription models OpenRouter supports. Cheapest first.",
                             style = AuraType.label.copy(color = tokens.colors.textSecondary)
                         )
                         Spacer(Modifier.height(12.dp))
-                    } else {
-                        // Free-text ID escape hatch (PLAN.md §5) — text models only.
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(tokens.radii.sm))
-                                    .background(tokens.colors.background)
-                                    .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.sm))
-                                    .padding(12.dp)
-                            ) {
-                                if (freeText.isEmpty()) BasicText("enter any model id…", style = AuraType.body.copy(color = tokens.colors.textSecondary))
-                                BasicTextField(
-                                    value = freeText,
-                                    onValueChange = { freeText = it },
-                                    singleLine = true,
-                                    textStyle = AuraType.body.copy(color = tokens.colors.textPrimary),
-                                    cursorBrush = SolidColor(tokens.colors.accent),
-                                    modifier = Modifier.fillMaxWidth()
+                    }
+
+                    // Free-text custom model id (item 9 — future-proofs against the curated/
+                    // live list going stale, e.g. a renamed or newly-added STT model).
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(tokens.radii.sm))
+                                .background(tokens.colors.background)
+                                .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.sm))
+                                .padding(12.dp)
+                        ) {
+                            if (freeText.isEmpty()) {
+                                BasicText(
+                                    if (sttMode) "custom model id…" else "enter any model id…",
+                                    style = AuraType.body.copy(color = tokens.colors.textSecondary)
                                 )
                             }
-                            Spacer(Modifier.size(8.dp))
-                            SoftButton("Use", filled = true, onClick = { if (freeText.isNotBlank()) onSelect(freeText.trim()) })
+                            BasicTextField(
+                                value = freeText,
+                                onValueChange = { freeText = it },
+                                singleLine = true,
+                                textStyle = AuraType.body.copy(color = tokens.colors.textPrimary),
+                                cursorBrush = SolidColor(tokens.colors.accent),
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.size(8.dp))
+                        SoftButton("Use", filled = true, onClick = { if (freeText.isNotBlank()) onSelect(freeText.trim()) })
                     }
+                    Spacer(Modifier.height(12.dp))
 
                     Column(
                         Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         if (sttMode) {
-                            // Fixed trio: no favourites/recents grouping, no pin affordance.
+                            // Curated + live list: no favourites/recents grouping, no pin affordance.
                             models.forEach { ModelItem(it, it.id == current, favorite = false, onSelect = onSelect, onToggleFavorite = null) }
                         } else {
                             val favModels = models.filter { favorites.contains(it.id) }

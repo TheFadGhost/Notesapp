@@ -34,14 +34,18 @@ class AiPreferences @Inject constructor(
     val textModel: Flow<String> = context.aiSettingsStore.data.map { it[textModelKey] ?: DEFAULT_TEXT_MODEL }
 
     /**
-     * Selected STT model. The transcription IDs OpenRouter actually accepts are a fixed
-     * hardcoded trio ([STT_MODELS]) that do NOT appear in `/models`; the old default
-     * (`qwen/qwen3-asr-flash-*`) no longer exists. Any stored value outside the trio —
-     * the dead qwen id, a stale free-text pick — is transparently healed to
-     * [DEFAULT_STT_MODEL] here on read, so existing installs recover with no user action.
+     * Selected STT model: the curated trio ([STT_MODELS]), or any custom model id the
+     * user typed in (item 9 — future-proofs against the curated list going stale, which
+     * is exactly what happened to the old `qwen/qwen3-asr-flash-*` default). A stored
+     * value is trusted as-is unless it's blank or matches [LEGACY_DEAD_STT_PREFIXES] —
+     * that narrow list heals installs still holding the specific dead default from
+     * before this fix, without silently discarding a deliberate custom pick. Validity
+     * of a custom id is checked on demand via the Settings "Test" button, not on every
+     * read.
      */
     val sttModel: Flow<String> = context.aiSettingsStore.data.map { prefs ->
-        prefs[sttModelKey]?.takeIf { it in STT_MODELS } ?: DEFAULT_STT_MODEL
+        val stored = prefs[sttModelKey]?.trim()
+        if (stored.isNullOrBlank() || isLegacyDeadSttModel(stored)) DEFAULT_STT_MODEL else stored
     }
     val favorites: Flow<Set<String>> = context.aiSettingsStore.data.map { it[favoritesKey] ?: emptySet() }
     val recents: Flow<List<String>> = context.aiSettingsStore.data.map { p ->
@@ -62,9 +66,10 @@ class AiPreferences @Inject constructor(
     }
 
     suspend fun setSttModel(id: String) {
-        // Only ever persist a supported transcription id; anything else falls back to the
-        // default so the stored value can never drift back into an unusable state.
-        val safe = id.trim().takeIf { it in STT_MODELS } ?: DEFAULT_STT_MODEL
+        // Trust any non-blank id (curated trio, a live-discovered model, or a hand-typed
+        // custom id) — only blank input or the known-dead legacy default falls back.
+        val trimmed = id.trim()
+        val safe = if (trimmed.isBlank() || isLegacyDeadSttModel(trimmed)) DEFAULT_STT_MODEL else trimmed
         context.aiSettingsStore.edit { it[sttModelKey] = safe }
     }
 
@@ -100,15 +105,32 @@ class AiPreferences @Inject constructor(
         const val DEFAULT_STT_MODEL = "openai/gpt-4o-mini-transcribe"
 
         /**
-         * The exact transcription models OpenRouter's multipart STT endpoint accepts today.
-         * These IDs are NOT returned by `/models`, so the STT picker offers this fixed list
-         * (no free-text, no /models filtering). Order = cheapest → most accurate.
+         * Curated, known-good transcription models with friendly display names (item 9),
+         * shown in the STT picker before/alongside a live `/models?output_modalities=
+         * transcription` fetch, and used as the fallback if that fetch fails (no key yet,
+         * offline). These are NOT returned by the plain `/models` list. Order = cheapest →
+         * most accurate. The picker also offers a free-text "custom model id" entry so any
+         * other transcription-capable id OpenRouter adds later can be used without an app
+         * update — see [OpenRouterClient.listTranscriptionModels] for the dynamic source.
          */
-        val STT_MODELS = listOf(
-            "openai/gpt-4o-mini-transcribe",
-            "openai/gpt-4o-transcribe",
-            "openai/whisper-1"
+        val CURATED_STT_MODELS: List<Pair<String, String>> = listOf(
+            "openai/gpt-4o-mini-transcribe" to "GPT-4o mini Transcribe",
+            "openai/gpt-4o-transcribe" to "GPT-4o Transcribe",
+            "openai/whisper-1" to "Whisper v1"
         )
+        val STT_MODELS: List<String> = CURATED_STT_MODELS.map { it.first }
+
+        /**
+         * Id prefixes known to have gone dead on OpenRouter in this app's history — the
+         * original `qwen/qwen3-asr-flash-*` dated snapshot PLAN.md picked as the default,
+         * which stopped resolving. Narrow and specific on purpose: this heals existing
+         * installs still holding that one bad value, without discarding any other
+         * deliberate custom pick (validate those with the Settings "Test" button instead).
+         */
+        private val LEGACY_DEAD_STT_PREFIXES = listOf("qwen/qwen3-asr-flash")
+
+        private fun isLegacyDeadSttModel(id: String): Boolean =
+            LEGACY_DEAD_STT_PREFIXES.any { id.startsWith(it) }
 
         private const val MAX_RECENTS = 8
     }

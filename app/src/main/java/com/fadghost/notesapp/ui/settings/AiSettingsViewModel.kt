@@ -2,6 +2,7 @@ package com.fadghost.notesapp.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fadghost.notesapp.data.ai.AiPreferences
 import com.fadghost.notesapp.data.ai.AiRepository
 import com.fadghost.notesapp.data.ai.model.CachedModel
 import com.fadghost.notesapp.data.ai.net.OpenRouterError
@@ -40,6 +41,20 @@ class AiSettingsViewModel @Inject constructor(
 
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    /**
+     * STT model picker list (item 9): starts as the curated trio, replaced by the
+     * live `/models?output_modalities=transcription` result once [refreshSttModels]
+     * succeeds — that live set is exactly what `/audio/transcriptions` accepts, so it
+     * self-heals if OpenRouter retires/renames an id (the failure mode that produced
+     * the old hardcoded-trio-only picker). Falls back to the curated trio again if a
+     * refresh returns nothing usable.
+     */
+    private val _sttModels = MutableStateFlow(curatedSttModels())
+    val sttModels: StateFlow<List<CachedModel>> = _sttModels.asStateFlow()
+
+    private val _sttTestStatus = MutableStateFlow<String?>(null)
+    val sttTestStatus: StateFlow<String?> = _sttTestStatus.asStateFlow()
 
     fun saveKey(key: String) {
         if (key.isBlank()) return
@@ -90,11 +105,44 @@ class AiSettingsViewModel @Inject constructor(
     fun toggleFavorite(id: String) { viewModelScope.launch { repo.toggleFavorite(id) } }
     fun setAutoCleanTranscript(enabled: Boolean) { viewModelScope.launch { repo.setAutoCleanTranscript(enabled) } }
 
+    /** Live-refresh the STT picker list from `/models?output_modalities=transcription`. */
+    fun refreshSttModels() {
+        viewModelScope.launch {
+            _busy.value = true
+            repo.refreshSttModels().fold(
+                onSuccess = { fetched ->
+                    _sttModels.value = fetched.ifEmpty { curatedSttModels() }
+                    _status.value = "Loaded ${fetched.size} transcription models"
+                },
+                onFailure = { _status.value = "✗ ${friendly(it)}" }
+            )
+            _busy.value = false
+        }
+    }
+
+    /** Settings STT "Test": probes [model] against the live endpoint (item 9). */
+    fun testSttModel(model: String) {
+        if (model.isBlank()) return
+        viewModelScope.launch {
+            _busy.value = true
+            _sttTestStatus.value = "Testing…"
+            _sttTestStatus.value = repo.testSttModel(model).fold(
+                onSuccess = { "✓ \"$model\" works" },
+                onFailure = { "✗ ${friendly(it)}" }
+            )
+            _busy.value = false
+        }
+    }
+
+    private fun curatedSttModels(): List<CachedModel> =
+        AiPreferences.CURATED_STT_MODELS.map { (id, name) -> CachedModel(id = id, name = name) }
+
     private fun friendly(e: Throwable): String = when (e) {
         is OpenRouterError.InvalidKey -> "Key rejected"
         is OpenRouterError.NoCredit -> "Out of credit"
         is OpenRouterError.RateLimited -> "Rate limited"
         is OpenRouterError.Network -> "No connection"
+        is OpenRouterError.ModelUnavailable -> "Model \"${e.model}\" does not exist"
         else -> e.message ?: "Failed"
     }
 

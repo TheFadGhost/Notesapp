@@ -150,4 +150,28 @@ class OpenRouterClientTest {
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is OpenRouterError.InvalidKey)
     }
+
+    // --- listTranscriptionModels (item 9 — live STT model discovery) ------------
+
+    @Test fun listTranscriptionModelsQueriesOutputModalitiesFilter() = runTest {
+        var seenQuery: String? = null
+        val body = """{"data":[
+            {"id":"openai/gpt-4o-mini-transcribe","name":"OpenAI: GPT-4o Mini Transcribe"},
+            {"id":"openai/whisper-1","name":"OpenAI: Whisper 1"}
+        ]}"""
+        val c = client { req ->
+            seenQuery = req.url.parameters["output_modalities"]
+            respond(body, HttpStatusCode.OK, jsonHeaders)
+        }
+        val models = c.listTranscriptionModels("k")
+        assertEquals("transcription", seenQuery)
+        assertEquals(2, models.size)
+        assertEquals("openai/gpt-4o-mini-transcribe", models[0].id)
+    }
+
+    @Test fun listTranscriptionModelsMapsInvalidKeyFrom401() = runTest {
+        val c = client { respond("nope", HttpStatusCode.Unauthorized, jsonHeaders) }
+        val err = runCatching { c.listTranscriptionModels("bad") }.exceptionOrNull()
+        assertTrue(err is OpenRouterError.InvalidKey)
+    }
 }

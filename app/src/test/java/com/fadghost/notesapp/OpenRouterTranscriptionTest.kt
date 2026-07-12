@@ -2,6 +2,7 @@ package com.fadghost.notesapp
 
 import com.fadghost.notesapp.data.ai.net.OpenRouterClient
 import com.fadghost.notesapp.data.ai.net.OpenRouterError
+import com.fadghost.notesapp.data.ai.net.SilentAudioProbe
 import com.fadghost.notesapp.data.ai.net.TranscriptionForm
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -83,5 +84,64 @@ class OpenRouterTranscriptionTest {
         val c = client { respond("""{"text":""}""", HttpStatusCode.OK, jsonHeaders) }
         val res = c.transcribe("k", ByteArray(4), "seg.m4a", "m")
         assertEquals("", res.text)
+    }
+
+    @Test fun transcribeMapsDeadModelFrom400WithMessage() = runTest {
+        // Live-verified OpenRouter error shape for a retired/renamed model id (item 9):
+        // {"error":{"message":"Model X does not exist","code":400}}.
+        val body = """{"error":{"message":"Model ghost/model does not exist","code":400}}"""
+        val c = client { respond(body, HttpStatusCode.BadRequest, jsonHeaders) }
+        val err = runCatching { c.transcribe("k", ByteArray(4), "seg.m4a", "ghost/model") }.exceptionOrNull()
+        assertTrue(err is OpenRouterError.ModelUnavailable)
+        assertEquals("ghost/model", (err as OpenRouterError.ModelUnavailable).model)
+    }
+
+    // --- contentType override (Settings STT "Test" probe, item 9) ---------------
+
+    @Test fun transcribeSendsOverriddenContentTypeForTestProbe() = runTest {
+        var seenContentType: String? = null
+        val c = client { req ->
+            // The multipart body's own file-part content-type isn't inspectable via
+            // req.body.contentType() (that reports the outer multipart boundary type),
+            // so assert via TranscriptionForm directly below; this call just proves the
+            // override plumbs through without throwing / changing the endpoint hit.
+            seenContentType = req.body.contentType?.toString()
+            respond("""{"text":""}""", HttpStatusCode.OK, jsonHeaders)
+        }
+        val res = c.transcribe(
+            "k", SilentAudioProbe.bytes(), SilentAudioProbe.FILENAME, "openai/whisper-1",
+            contentType = SilentAudioProbe.CONTENT_TYPE
+        )
+        assertEquals("", res.text)
+        assertTrue(seenContentType!!.startsWith("multipart/form-data"))
+    }
+
+    @Test fun transcriptionFormPartsCarryOverriddenContentType() {
+        val parts = TranscriptionForm.parts(
+            model = "openai/whisper-1",
+            audioBytes = SilentAudioProbe.bytes(),
+            filename = SilentAudioProbe.FILENAME,
+            language = "en",
+            contentType = SilentAudioProbe.CONTENT_TYPE
+        )
+        val filePart = parts.first { it.name == "file" }
+        assertEquals("audio/wav", filePart.contentType.toString())
+    }
+
+    // --- SilentAudioProbe (Settings STT "Test" probe bytes, item 9) -------------
+
+    @Test fun silentAudioProbeBytesFormWellFormedWavHeader() {
+        val bytes = SilentAudioProbe.bytes()
+        assertTrue(bytes.size > 44) // header + at least some sample data
+        fun ascii(range: IntRange) = String(bytes, range.first, range.last - range.first + 1, Charsets.US_ASCII)
+        assertEquals("RIFF", ascii(0..3))
+        assertEquals("WAVE", ascii(8..11))
+        assertEquals("fmt ", ascii(12..15))
+        assertEquals("data", ascii(36..39))
+    }
+
+    @Test fun silentAudioProbeBytesAreDeterministic() {
+        assertEquals(SilentAudioProbe.bytes().size, SilentAudioProbe.bytes().size)
+        assertTrue(SilentAudioProbe.bytes().contentEquals(SilentAudioProbe.bytes()))
     }
 }

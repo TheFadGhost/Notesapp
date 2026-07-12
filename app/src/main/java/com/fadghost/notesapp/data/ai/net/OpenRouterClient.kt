@@ -5,6 +5,7 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.headers
+import io.ktor.client.request.parameter
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -67,6 +68,24 @@ class OpenRouterClient(
     /** Test-connection helper: returns the model count on success, typed error otherwise. */
     suspend fun testConnection(apiKey: String): Result<Int> =
         runCatching { listModels(apiKey).size }
+
+    /**
+     * GET /models?output_modalities=transcription (item 9) — the dedicated STT
+     * endpoint's supported models. Confirmed live: these ids (whisper-1,
+     * gpt-4o-mini-transcribe, gpt-4o-transcribe, plus others OpenRouter adds over
+     * time) do NOT appear in the plain [listModels] result but DO appear here, and
+     * are exactly what `/audio/transcriptions` accepts. Powers the STT picker's
+     * live model list so a newly retired/renamed id doesn't need an app update.
+     */
+    suspend fun listTranscriptionModels(apiKey: String): List<OpenRouterModel> = withRetry {
+        val resp = http.get("${config.baseUrl}/models") {
+            authHeaders(apiKey)
+            parameter("output_modalities", "transcription")
+        }
+        if (!resp.status.isSuccess()) throw mapError(resp, model = null)
+        runCatching { resp.body<ModelsResponse>().data }
+            .getOrElse { throw OpenRouterError.Parse(it.message) }
+    }
 
     // --- Streaming chat (Clean-up) ----------------------------------------------
 
@@ -169,15 +188,21 @@ class OpenRouterClient(
     ): TranscriptionResult =
         transcribe(apiKey, file.readBytes(), file.name, model, language)
 
-    /** Byte-source overload (used by the offline queue worker and unit tests). */
+    /**
+     * Byte-source overload (used by the offline queue worker, the Settings STT
+     * "Test" probe, and unit tests). [contentType] defaults to the real recording
+     * format ([TranscriptionForm.CONTENT_TYPE]); the test probe overrides it to
+     * `audio/wav` to match [SilentAudioProbe]'s bytes.
+     */
     suspend fun transcribe(
         apiKey: String,
         audioBytes: ByteArray,
         filename: String,
         model: String,
-        language: String = "en"
+        language: String = "en",
+        contentType: String = TranscriptionForm.CONTENT_TYPE
     ): TranscriptionResult = withRetry {
-        val parts = TranscriptionForm.parts(model, audioBytes, filename, language)
+        val parts = TranscriptionForm.parts(model, audioBytes, filename, language, contentType)
         val resp = http.preparePost("${config.baseUrl}/audio/transcriptions") {
             authHeaders(apiKey)
             setBody(io.ktor.client.request.forms.MultiPartFormDataContent(parts))

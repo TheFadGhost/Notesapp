@@ -280,7 +280,7 @@ class VoiceRecordViewModel @Inject constructor(
         is OpenRouterError.InvalidKey -> "Your API key was rejected. Check it in Settings."
         is OpenRouterError.NoCredit -> "Your OpenRouter account is out of credit."
         is OpenRouterError.RateLimited -> "Rate limited — try again in a moment."
-        is OpenRouterError.ModelUnavailable -> "That STT model is unavailable. Pick another in Settings."
+        is OpenRouterError.ModelUnavailable -> "STT model \"${e.model}\" is unavailable. Pick another in Settings."
         is OpenRouterError.Network -> "Couldn't reach OpenRouter. Your audio is saved."
         is OpenRouterError.Parse -> "Couldn't read the transcript. Try again."
         else -> "Something went wrong. Your audio is saved."

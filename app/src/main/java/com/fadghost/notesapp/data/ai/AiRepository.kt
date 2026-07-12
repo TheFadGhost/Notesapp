@@ -7,8 +7,10 @@ import com.fadghost.notesapp.data.ai.net.ChatMessage
 import com.fadghost.notesapp.data.ai.net.ChatRequest
 import com.fadghost.notesapp.data.ai.net.OpenRouterClient
 import com.fadghost.notesapp.data.ai.net.OpenRouterModel
+import com.fadghost.notesapp.data.ai.net.OpenRouterError
 import com.fadghost.notesapp.data.ai.net.ReasoningRequest
 import com.fadghost.notesapp.data.ai.net.ResponseFormat
+import com.fadghost.notesapp.data.ai.net.SilentAudioProbe
 import com.fadghost.notesapp.data.ai.net.Usage
 import com.fadghost.notesapp.alarm.ReminderAlarm
 import com.fadghost.notesapp.data.ai.parse.ActionExtractionParser
@@ -95,6 +97,41 @@ class AiRepository @Inject constructor(
     suspend fun setSttModel(id: String) = prefs.setSttModel(id)
     suspend fun toggleFavorite(id: String) = prefs.toggleFavorite(id)
     suspend fun setAutoCleanTranscript(enabled: Boolean) = prefs.setAutoCleanTranscript(enabled)
+
+    /**
+     * Live transcription-model discovery (item 9): queries `/models?output_modalities=
+     * transcription` — the STT-capable subset the dedicated endpoint actually accepts,
+     * which the plain `/models` list omits. Not persisted to [modelDao] (that cache
+     * backs the *text* picker); the Settings view-model keeps this in memory and falls
+     * back to [com.fadghost.notesapp.data.ai.AiPreferences.CURATED_STT_MODELS] if it
+     * fails (no key yet, offline).
+     */
+    suspend fun refreshSttModels(): Result<List<CachedModel>> {
+        val key = keyStore.get() ?: return Result.failure(IllegalStateException("No key"))
+        return runCatching { client.listTranscriptionModels(key).map { it.toCached(0L) } }
+    }
+
+    /**
+     * Settings STT "Test" (item 9 — root-cause fix): posts a tiny silent probe clip to
+     * `/audio/transcriptions` with [model] so a dead or renamed model id is caught in
+     * Settings, not mid-recording. Success ignores the (empty, since the probe is
+     * silence) transcribed text; failure surfaces the typed [OpenRouterError], e.g.
+     * [OpenRouterError.ModelUnavailable] naming the model.
+     */
+    suspend fun testSttModel(model: String): Result<Unit> {
+        val key = keyStore.get() ?: return Result.failure(IllegalStateException("No key"))
+        return runCatching {
+            client.transcribe(
+                apiKey = key,
+                audioBytes = SilentAudioProbe.bytes(),
+                filename = SilentAudioProbe.FILENAME,
+                model = model,
+                language = "en",
+                contentType = SilentAudioProbe.CONTENT_TYPE
+            )
+            Unit
+        }
+    }
 
     // --- Clean-up (streaming, map-reduce for long notes) ------------------------
 
