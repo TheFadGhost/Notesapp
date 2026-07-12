@@ -3,6 +3,8 @@ package com.fadghost.notesapp.ui.editor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,6 +41,8 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -106,9 +110,15 @@ fun EditorScreen(
     var titleValue by remember { mutableStateOf(TextFieldValue("")) }
     var bodyValue by remember { mutableStateOf(TextFieldValue("")) }
     var initializedFor by remember { mutableStateOf(-1L) }
-    var showPicker by remember { mutableStateOf(false) }
+    // Two independent, focused pickers (bug 3): the Folder chip and the Tags chip each open
+    // only their own popover — never a combined sheet.
+    var showFolderPicker by remember { mutableStateOf(false) }
+    var showTagPicker by remember { mutableStateOf(false) }
     var showNoKey by remember { mutableStateOf(false) }
     var bodyLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    // Y (root px) of the bottom of the title/header, so the first-run coach card can anchor
+    // strictly BELOW it and never cover the title or top bar (bug 6).
+    var coachAnchorY by remember { mutableStateOf(0) }
 
     // One-time coach tip labelling the three AI icons (P1-3), DataStore-gated.
     val context = LocalContext.current
@@ -184,46 +194,60 @@ fun EditorScreen(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 96.dp)
         ) {
-            // Top bar.
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            // Top bar. Back and the destructive trash stay pinned at the ends; the middle
+            // action cluster (AI icons + Folder/Tags chips) becomes horizontally scrollable
+            // on narrow screens so nothing is ever clipped (bug 4). The Folder/Tags chips
+            // are icon-only to buy width; their state is shown by an accent tint.
+            BoxWithConstraints(
+                Modifier.fillMaxWidth().padding(vertical = 8.dp)
             ) {
-                IconAction(Glyph.BACK) {
-                    focus.clearFocus()
-                    viewModel.close()
-                    onExit()
-                }
-                Spacer(Modifier.width(4.dp))
-                IconAction(Glyph.SPARKLE, tint = tokens.colors.accent) { onCleanup() }
-                IconAction(Glyph.CALENDAR, tint = tokens.colors.accent) { onExtract() }
-                MicAction(tint = tokens.colors.accent) { onVoice() }
-                Spacer(Modifier.weight(1f))
-                PillAction(
-                    glyph = Glyph.FOLDER,
-                    label = folders.firstOrNull { it.id == state.folderId }?.name ?: "Folder"
-                ) { showPicker = true }
-                Spacer(Modifier.width(8.dp))
-                PillAction(glyph = Glyph.TAG, label = "Tags") { showPicker = true }
-                // Keep the destructive trash well clear of the Tags pill (P0-2): a wide
-                // gap + a hairline divider so it can't be fat-fingered for "Tags".
-                Spacer(Modifier.width(14.dp))
-                Box(
-                    Modifier
-                        .height(24.dp)
-                        .width(1.dp)
-                        .background(tokens.colors.outline)
-                )
-                Spacer(Modifier.width(6.dp))
-                IconAction(Glyph.TRASH, tint = tokens.colors.danger) {
-                    viewModel.deleteNote { id -> onDeleted(id) }
+                val scrollable = maxWidth < 380.dp
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    IconAction(Glyph.BACK) {
+                        focus.clearFocus()
+                        viewModel.close()
+                        onExit()
+                    }
+                    val clusterMod = if (scrollable) {
+                        Modifier.weight(1f).horizontalScroll(rememberScrollState())
+                    } else {
+                        Modifier.weight(1f)
+                    }
+                    Row(clusterMod, verticalAlignment = Alignment.CenterVertically) {
+                        IconAction(Glyph.SPARKLE, tint = tokens.colors.accent) { onCleanup() }
+                        IconAction(Glyph.CALENDAR, tint = tokens.colors.accent) { onExtract() }
+                        MicAction(tint = tokens.colors.accent) { onVoice() }
+                        // Push the chips to the right of the cluster when there's room; use a
+                        // fixed gap in the scrollable case (weight is invalid inside scroll).
+                        if (scrollable) Spacer(Modifier.width(12.dp)) else Spacer(Modifier.weight(1f))
+                        ChipAction(Glyph.FOLDER, active = state.folderId != null) { showFolderPicker = true }
+                        Spacer(Modifier.width(8.dp))
+                        ChipAction(Glyph.TAG, active = noteTags.isNotEmpty()) { showTagPicker = true }
+                    }
+                    // Keep the destructive trash well clear of the Tags chip (P0-2): a hairline
+                    // divider so it can't be fat-fingered for "Tags".
+                    Spacer(Modifier.width(6.dp))
+                    Box(
+                        Modifier
+                            .height(24.dp)
+                            .width(1.dp)
+                            .background(tokens.colors.outline)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    IconAction(Glyph.TRASH, tint = tokens.colors.danger) {
+                        viewModel.deleteNote { id -> onDeleted(id) }
+                    }
                 }
             }
 
             Spacer(Modifier.height(8.dp))
 
             // Title.
-            Box {
+            Box(
+                Modifier.onGloballyPositioned {
+                    coachAnchorY = (it.positionInRoot().y + it.size.height).toInt()
+                }
+            ) {
                 if (titleValue.text.isEmpty()) {
                     BasicText("Title", style = AuraType.title.copy(color = tokens.colors.textSecondary))
                 }
@@ -337,17 +361,23 @@ fun EditorScreen(
                 .padding(bottom = 12.dp)
         )
 
-        if (showPicker) {
-            TagFolderPicker(
-                allTags = allTags,
-                assignedTagIds = noteTags.map { it.id }.toSet(),
+        if (showFolderPicker) {
+            FolderPicker(
                 folders = folders,
                 currentFolderId = state.folderId,
-                onToggleTag = viewModel::toggleTag,
-                onCreateTag = viewModel::createAndAssignTag,
                 onSelectFolder = viewModel::moveToFolder,
                 onCreateFolder = viewModel::createFolderAndMove,
-                onDismiss = { showPicker = false }
+                onDismiss = { showFolderPicker = false }
+            )
+        }
+
+        if (showTagPicker) {
+            TagPicker(
+                allTags = allTags,
+                assignedTagIds = noteTags.map { it.id }.toSet(),
+                onToggleTag = viewModel::toggleTag,
+                onCreateTag = viewModel::createAndAssignTag,
+                onDismiss = { showTagPicker = false }
             )
         }
 
@@ -368,17 +398,15 @@ fun EditorScreen(
             }
         }
 
-        // First-open coach tip labelling the three AI icons (P1-3).
+        // First-open coach tip labelling the three AI icons (P1-3). Anchored strictly below
+        // the title (bug 6) and dismissible by tapping outside as well as "Got it".
         EditorCoachTip(
             visible = coachVisible,
+            anchorYpx = coachAnchorY,
             onDismiss = {
                 coachVisible = false
                 coachScope.launch { coachStore.markSeen() }
-            },
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(top = 52.dp)
+            }
         )
 
         // ✨ Clean-up before/after sheet.
@@ -613,48 +641,73 @@ private fun IconAction(
     }
 }
 
+/**
+ * Icon-only Folder/Tags chip (bug 4). A rounded 44dp surface button; when [active]
+ * (a folder is set / tags are assigned) it tints to the accent and shows an accent-lined
+ * rim so the state is still legible without a text label.
+ */
 @Composable
-private fun PillAction(glyph: Glyph, label: String, onClick: () -> Unit) {
+private fun ChipAction(glyph: Glyph, active: Boolean, onClick: () -> Unit) {
     val tokens = Aura.tokens
     val interaction = remember { MutableInteractionSource() }
-    Row(
+    val tint = if (active) tokens.colors.accent else tokens.colors.textSecondary
+    Box(
         Modifier
-            .defaultMinSize(minHeight = 48.dp)
+            .size(44.dp)
             .clip(RoundedCornerShape(tokens.radii.pill))
             .auraPress(interaction, tint = true)
-            .background(tokens.colors.surface)
+            .background(if (active) tokens.colors.accent.copy(alpha = 0.14f) else tokens.colors.surface)
             .clickable(
                 interactionSource = interaction,
                 indication = null,
                 onClick = onClick
-            )
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            ),
+        contentAlignment = Alignment.Center
     ) {
-        AuraGlyph(glyph, tokens.colors.textSecondary, Modifier.size(16.dp))
-        Spacer(Modifier.width(6.dp))
-        BasicText(label, style = AuraType.label.copy(color = tokens.colors.textPrimary))
+        AuraGlyph(glyph, tint, Modifier.size(18.dp))
     }
 }
 
-/** First-open coach card labelling the three AI icons — Clean-up / Extract / Voice. */
+/**
+ * First-open coach card labelling the three AI icons — Clean-up / Extract / Voice.
+ * A transparent full-screen layer catches outside taps to dismiss; the card itself is
+ * offset to sit just below the measured title bottom ([anchorYpx]) so it never overlaps
+ * the top bar or the Title field (bug 6).
+ */
 @Composable
 private fun EditorCoachTip(
     visible: Boolean,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    anchorYpx: Int,
+    onDismiss: () -> Unit
 ) {
     if (!visible) return
     val tokens = Aura.tokens
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(tokens.radii.md))
-            .background(tokens.colors.surfaceTranslucent)
-            .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.md))
-            .padding(horizontal = 16.dp, vertical = 14.dp)
+    val density = LocalDensity.current
+    Box(
+        Modifier
+            .fillMaxSize()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss
+            )
     ) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset { androidx.compose.ui.unit.IntOffset(0, anchorYpx + with(density) { 8.dp.roundToPx() }) }
+                .padding(horizontal = 16.dp)
+                .clip(RoundedCornerShape(tokens.radii.md))
+                .background(tokens.colors.surfaceTranslucent)
+                .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.md))
+                // Swallow taps on the card so they don't fall through to dismiss.
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {}
+                )
+                .padding(horizontal = 16.dp, vertical = 14.dp)
+        ) {
         BasicText("QUICK TOUR", style = AuraType.labelSm.copy(color = tokens.colors.textSecondary))
         Spacer(Modifier.height(10.dp))
         CoachRow(Glyph.SPARKLE, "Clean-up", "Tidy grammar & formatting")
@@ -678,6 +731,7 @@ private fun EditorCoachTip(
                 .padding(horizontal = 18.dp, vertical = 8.dp)
         ) {
             BasicText("Got it", style = AuraType.label.copy(color = tokens.colors.background))
+        }
         }
     }
 }
