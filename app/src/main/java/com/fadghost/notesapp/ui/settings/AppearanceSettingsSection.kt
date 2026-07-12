@@ -48,6 +48,7 @@ import com.fadghost.notesapp.ui.components.rememberAuraHaptics
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraAccents
 import com.fadghost.notesapp.ui.theme.AuraType
+import com.fadghost.notesapp.ui.theme.auraSheetShadow
 import com.fadghost.notesapp.ui.theme.ThemeResolver
 import com.fadghost.notesapp.ui.theme.ThemeSwitchController
 import com.fadghost.notesapp.ui.theme.ThemeTokens
@@ -69,15 +70,16 @@ fun AppearanceSettingsSection(viewModel: MainViewModel = hiltViewModel()) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .auraSheetShadow(RoundedCornerShape(tokens.radii.md))
             .clip(RoundedCornerShape(tokens.radii.md))
             .background(tokens.colors.surface)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.md))
             .padding(16.dp)
     ) {
-        BasicText("Appearance", style = AuraType.label.copy(color = tokens.colors.textSecondary))
+        BasicText("APPEARANCE", style = AuraType.labelSm.copy(color = tokens.colors.textSecondary))
         Spacer(Modifier.height(14.dp))
 
-        BasicText("Theme", style = AuraType.body.copy(color = tokens.colors.textPrimary))
+        BasicText("Theme", style = AuraType.bodyLg.copy(color = tokens.colors.textPrimary))
         Spacer(Modifier.height(10.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(ThemeMode.entries.size) { i ->
@@ -92,7 +94,7 @@ fun AppearanceSettingsSection(viewModel: MainViewModel = hiltViewModel()) {
         }
 
         Spacer(Modifier.height(18.dp))
-        BasicText("Accent", style = AuraType.body.copy(color = tokens.colors.textPrimary))
+        BasicText("Accent", style = AuraType.bodyLg.copy(color = tokens.colors.textPrimary))
         Spacer(Modifier.height(10.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             items(AuraAccents.themeAccents.size) { index ->

@@ -40,6 +40,7 @@ import com.fadghost.notesapp.ui.components.AuraGlyph
 import com.fadghost.notesapp.ui.components.Glyph
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraType
+import com.fadghost.notesapp.ui.theme.auraSheetShadow
 
 /**
  * Settings sections for the Diary (PLAN.md §7): a Privacy → biometric gate toggle
@@ -194,7 +195,7 @@ private fun Field(label: String, display: String, onUp: () -> Unit, onDown: () -
                 .padding(vertical = 8.dp),
             contentAlignment = Alignment.Center
         ) {
-            BasicText(display, style = AuraType.title.copy(color = tokens.colors.textPrimary, textAlign = TextAlign.Center))
+            BasicText(display, style = AuraType.titleSm.copy(color = tokens.colors.textPrimary, textAlign = TextAlign.Center))
         }
         StepBtn(Glyph.CHEVRON_DOWN, onDown)
     }
@@ -224,12 +225,13 @@ private fun SectionCardLocal(title: String, content: @Composable () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .auraSheetShadow(RoundedCornerShape(tokens.radii.md))
             .clip(RoundedCornerShape(tokens.radii.md))
             .background(tokens.colors.surface)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.md))
             .padding(16.dp)
     ) {
-        BasicText(title, style = AuraType.label.copy(color = tokens.colors.textSecondary))
+        BasicText(title.uppercase(), style = AuraType.labelSm.copy(color = tokens.colors.textSecondary))
         Spacer(Modifier.height(12.dp))
         content()
     }

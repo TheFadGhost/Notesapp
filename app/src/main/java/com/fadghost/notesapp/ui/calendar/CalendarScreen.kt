@@ -30,8 +30,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -42,6 +44,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,14 +57,21 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.fadghost.notesapp.data.db.entity.Recurrence
 import com.fadghost.notesapp.ui.components.AuraGlyph
 import com.fadghost.notesapp.ui.components.Glyph
+import com.fadghost.notesapp.ui.shell.NavTab
+import com.fadghost.notesapp.ui.shell.ShellSignal
+import com.fadghost.notesapp.ui.shell.ShellSignals
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraType
+import com.fadghost.notesapp.ui.theme.auraFloatShadow
+import com.fadghost.notesapp.ui.theme.auraSheetShadow
+import com.fadghost.notesapp.ui.theme.auraTopHighlight
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 /**
  * Calendar tab (PLAN.md §8). Month view with springy swipe + dots, a week strip,
@@ -86,6 +96,25 @@ fun CalendarScreen(
     var visibleMonth by remember { mutableStateOf(YearMonth.from(selected)) }
 
     var draft by remember { mutableStateOf<ItemDraft?>(null) }
+
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    fun openNew() {
+        val start = selected.atTime(9, 0).atZone(zone).toInstant().toEpochMilli()
+        draft = ItemDraft(kind = CalendarKind.EVENT, start = start, end = start + 3_600_000L)
+    }
+
+    // Shell signals: nav re-tap scrolls to top; the contextual FAB starts a new event.
+    LaunchedEffect(Unit) {
+        ShellSignals.flow.collect { msg ->
+            if (msg.tab != NavTab.CALENDAR) return@collect
+            when (msg.signal) {
+                ShellSignal.SCROLL_TOP -> scope.launch { listState.animateScrollToItem(0) }
+                ShellSignal.FAB_PRIMARY -> openNew()
+            }
+        }
+    }
 
     // Deep-link from a reminder notification → open its edit sheet.
     LaunchedEffect(deepLinkReminderId, data.reminders) {
@@ -117,11 +146,6 @@ fun CalendarScreen(
     val agendaDays = remember(byDay) { byDay.keys.filter { !it.isBefore(today) }.sorted() }
     val hasAnything = data.events.isNotEmpty() || data.reminders.isNotEmpty()
 
-    fun openNew() {
-        val start = selected.atTime(9, 0).atZone(zone).toInstant().toEpochMilli()
-        draft = ItemDraft(kind = CalendarKind.EVENT, start = start, end = start + 3_600_000L)
-    }
-
     fun editItem(item: CalendarItem) {
         draft = if (item.kind == CalendarKind.EVENT) {
             data.events.firstOrNull { it.id == item.baseId }?.let { e ->
@@ -134,13 +158,25 @@ fun CalendarScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(tokens.colors.background)) {
+    Box(Modifier.fillMaxSize().statusBarsPadding().background(tokens.colors.background)) {
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                start = 16.dp, end = 16.dp, top = 12.dp, bottom = 120.dp
+                start = 20.dp, end = 20.dp, top = 4.dp, bottom = 120.dp
             )
         ) {
+            // Screen title header — parity with Notes/Diary/Settings (ux.md §3 P0).
+            item(key = "header") {
+                Column(Modifier.padding(top = 8.dp, bottom = 8.dp)) {
+                    BasicText(
+                        "YOUR SCHEDULE",
+                        style = AuraType.labelSm.copy(color = tokens.colors.textSecondary)
+                    )
+                    Spacer(Modifier.size(2.dp))
+                    BasicText("Calendar", style = AuraType.titleLg.copy(color = tokens.colors.textPrimary))
+                }
+            }
             item(key = "banners") {
                 NotificationPermissionBanner()
                 BatteryBanner(context)
@@ -193,7 +229,7 @@ fun CalendarScreen(
                 item(key = "agendatitle") {
                     BasicText(
                         "Agenda",
-                        style = AuraType.title.copy(color = tokens.colors.textPrimary),
+                        style = AuraType.titleSm.copy(color = tokens.colors.textPrimary),
                         modifier = Modifier.padding(top = 20.dp, bottom = 4.dp)
                     )
                 }
@@ -212,13 +248,7 @@ fun CalendarScreen(
             }
         }
 
-        // Floating add button (bottom-end, above the nav pill).
-        AddButton(
-            onClick = ::openNew,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 20.dp, bottom = 96.dp)
-        )
+        // The create action now lives on the shell-level contextual FAB (V2-SPEC item 4).
 
         ItemDetailSheet(
             draft = draft,
@@ -255,6 +285,7 @@ private fun WeekStrip(
     Row(
         modifier
             .fillMaxWidth()
+            .auraSheetShadow(RoundedCornerShape(tokens.radii.md))
             .clip(RoundedCornerShape(tokens.radii.md))
             .background(tokens.colors.surface)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.md))
@@ -315,7 +346,7 @@ private fun SelectedDayPanel(
     val tokens = Aura.tokens
     Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            BasicText(dayLabel(date, today), style = AuraType.title.copy(color = tokens.colors.textPrimary))
+            BasicText(dayLabel(date, today), style = AuraType.titleSm.copy(color = tokens.colors.textPrimary))
             Spacer(Modifier.weight(1f))
             Box(
                 Modifier
@@ -370,6 +401,7 @@ private fun AgendaRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
+            .auraSheetShadow(RoundedCornerShape(tokens.radii.md))
             .clip(RoundedCornerShape(tokens.radii.md))
             .background(tokens.colors.surface)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.md))
@@ -417,22 +449,6 @@ private fun AgendaRow(
 }
 
 @Composable
-private fun AddButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val tokens = Aura.tokens
-    Box(
-        modifier
-            .size(56.dp)
-            .clip(CircleShape)
-            .background(tokens.colors.accent)
-            .border(1.dp, tokens.colors.outline, CircleShape)
-            .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        AuraGlyph(Glyph.PLUS, tokens.colors.background, Modifier.size(26.dp))
-    }
-}
-
-@Composable
 private fun CalendarEmptyState() {
     val tokens = Aura.tokens
     Column(
@@ -447,7 +463,7 @@ private fun CalendarEmptyState() {
             contentAlignment = Alignment.Center
         ) { AuraGlyph(Glyph.CALENDAR, tokens.colors.accent, Modifier.size(30.dp)) }
         Spacer(Modifier.size(14.dp))
-        BasicText("Nothing planned yet", style = AuraType.title.copy(color = tokens.colors.textPrimary))
+        BasicText("Nothing planned yet", style = AuraType.titleSm.copy(color = tokens.colors.textPrimary))
         Spacer(Modifier.size(6.dp))
         BasicText(
             "Add an event or reminder — or type \"gym tomorrow 7am\" above.",
@@ -477,12 +493,14 @@ private fun NotificationPermissionBanner() {
         Modifier
             .fillMaxWidth()
             .padding(bottom = 12.dp)
+            .auraFloatShadow(RoundedCornerShape(tokens.radii.md))
             .clip(RoundedCornerShape(tokens.radii.md))
             .background(tokens.colors.surface)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.md))
+            .auraTopHighlight(tokens.radii.md)
             .padding(16.dp)
     ) {
-        BasicText("Turn on reminder notifications", style = AuraType.body.copy(color = tokens.colors.textPrimary))
+        BasicText("Turn on reminder notifications", style = AuraType.bodyLg.copy(color = tokens.colors.textPrimary))
         Spacer(Modifier.size(4.dp))
         BasicText(
             if (asked) "Notifications are off. Enable them in Settings so reminders can alert you."
@@ -511,12 +529,13 @@ private fun BatteryBanner(context: Context) {
         Modifier
             .fillMaxWidth()
             .padding(bottom = 12.dp)
+            .auraFloatShadow(RoundedCornerShape(tokens.radii.md))
             .clip(RoundedCornerShape(tokens.radii.md))
             .background(tokens.colors.danger.copy(alpha = 0.10f))
             .border(1.dp, tokens.colors.danger.copy(alpha = 0.4f), RoundedCornerShape(tokens.radii.md))
             .padding(16.dp)
     ) {
-        BasicText("Reminders may be delayed", style = AuraType.body.copy(color = tokens.colors.textPrimary))
+        BasicText("Reminders may be delayed", style = AuraType.bodyLg.copy(color = tokens.colors.textPrimary))
         Spacer(Modifier.size(4.dp))
         BasicText(
             "Battery optimisation is on for this app. Allow it to run unrestricted so alarms fire on time.",

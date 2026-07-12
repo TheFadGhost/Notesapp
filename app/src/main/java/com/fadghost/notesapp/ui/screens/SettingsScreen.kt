@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,8 +25,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,8 +40,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.fadghost.notesapp.data.backup.ImportMode
 import com.fadghost.notesapp.data.prefs.ThemeMode
 import com.fadghost.notesapp.ui.settings.BackupViewModel
+import com.fadghost.notesapp.ui.shell.NavTab
+import com.fadghost.notesapp.ui.shell.ShellSignal
+import com.fadghost.notesapp.ui.shell.ShellSignals
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraType
+import com.fadghost.notesapp.ui.theme.auraSheetShadow
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
@@ -46,31 +54,58 @@ fun SettingsScreen(
     onSelectMode: (ThemeMode) -> Unit
 ) {
     val tokens = Aura.tokens
+    val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    // Nav re-tap scrolls Settings back to the top (V2-SPEC item 13).
+    LaunchedEffect(Unit) {
+        ShellSignals.flow.collect { msg ->
+            if (msg.tab == NavTab.SETTINGS && msg.signal == ShellSignal.SCROLL_TOP) {
+                scope.launch { scrollState.animateScrollTo(0) }
+            }
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp)
+            .statusBarsPadding()
+            .verticalScroll(scrollState)
+            .padding(horizontal = 20.dp)
+            .padding(top = 12.dp)
     ) {
+        // Header: eyebrow + serif title, matching the other tabs.
+        BasicText("PREFERENCES", style = AuraType.labelSm.copy(color = tokens.colors.textSecondary))
+        Spacer(Modifier.height(2.dp))
         BasicHeader("Settings")
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(24.dp))
 
+        // Grouped for a daily driver (ux.md §3 P0): Look & feel / Features / Your data.
+        GroupLabel("Look & feel")
         com.fadghost.notesapp.ui.settings.AppearanceSettingsSection()
 
-        Spacer(Modifier.height(16.dp))
-        BackupSection()
-
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(24.dp))
+        GroupLabel("Features")
         com.fadghost.notesapp.ui.settings.DiarySettingsSection()
-
         Spacer(Modifier.height(16.dp))
         com.fadghost.notesapp.ui.settings.AiSettingsSection()
 
+        Spacer(Modifier.height(24.dp))
+        GroupLabel("Your data")
+        BackupSection()
         Spacer(Modifier.height(16.dp))
         com.fadghost.notesapp.ui.voice.VoiceStorageSection()
 
         Spacer(Modifier.height(96.dp)) // clear the floating nav bar
     }
+}
+
+/** Uppercase eyebrow that heads a settings group (visual.md §5.6). */
+@Composable
+private fun GroupLabel(text: String) {
+    BasicText(
+        text.uppercase(),
+        style = AuraType.labelSm.copy(color = Aura.tokens.colors.textSecondary),
+        modifier = Modifier.padding(start = 4.dp, bottom = 10.dp)
+    )
 }
 
 @Composable
@@ -133,8 +168,8 @@ private fun ActionRow(title: String, subtitle: String, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            BasicText(title, style = AuraType.body.copy(color = tokens.colors.textPrimary))
-            BasicText(subtitle, style = AuraType.label.copy(color = tokens.colors.textSecondary))
+            BasicText(title, style = AuraType.bodyLg.copy(color = tokens.colors.textPrimary))
+            BasicText(subtitle, style = AuraType.bodySm.copy(color = tokens.colors.textSecondary))
         }
     }
 }
@@ -144,7 +179,7 @@ private fun BasicHeader(text: String) {
     val tokens = Aura.tokens
     androidx.compose.foundation.text.BasicText(
         text = text,
-        style = AuraType.title.copy(color = tokens.colors.textPrimary)
+        style = AuraType.titleLg.copy(color = tokens.colors.textPrimary)
     )
 }
 
@@ -163,14 +198,15 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .auraSheetShadow(RoundedCornerShape(tokens.radii.md))
             .clip(RoundedCornerShape(tokens.radii.md))
             .background(tokens.colors.surface)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.md))
             .padding(16.dp)
     ) {
         androidx.compose.foundation.text.BasicText(
-            text = title,
-            style = AuraType.label.copy(color = tokens.colors.textSecondary)
+            text = title.uppercase(),
+            style = AuraType.labelSm.copy(color = tokens.colors.textSecondary)
         )
         Spacer(Modifier.height(12.dp))
         content()

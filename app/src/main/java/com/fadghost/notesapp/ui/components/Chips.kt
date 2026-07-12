@@ -47,6 +47,7 @@ fun TagChip(tag: Tag, selected: Boolean, onClick: (() -> Unit)? = null) {
     val bg = if (selected) dot.copy(alpha = 0.18f) else tokens.colors.surface
     Row(
         modifier = Modifier
+            .height(36.dp)
             .clip(RoundedCornerShape(tokens.radii.pill))
             .background(bg)
             .border(1.dp, if (selected) dot else tokens.colors.outline, RoundedCornerShape(tokens.radii.pill))
@@ -57,7 +58,7 @@ fun TagChip(tag: Tag, selected: Boolean, onClick: (() -> Unit)? = null) {
                     onClick = onClick
                 ) else Modifier
             )
-            .padding(horizontal = 12.dp, vertical = 7.dp),
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(dot))

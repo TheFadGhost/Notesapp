@@ -23,13 +23,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
@@ -45,8 +48,15 @@ import com.fadghost.notesapp.ui.components.AuraUndoSnackbar
 import com.fadghost.notesapp.ui.components.EmptyGlyph
 import com.fadghost.notesapp.ui.components.Glyph
 import com.fadghost.notesapp.ui.components.PlainChip
+import com.fadghost.notesapp.ui.shell.NavTab
+import com.fadghost.notesapp.ui.shell.ShellSignal
+import com.fadghost.notesapp.ui.shell.ShellSignals
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraType
+import com.fadghost.notesapp.ui.theme.auraFloatShadow
+import com.fadghost.notesapp.ui.theme.auraSheetShadow
+import com.fadghost.notesapp.ui.theme.auraTopHighlight
+import kotlinx.coroutines.launch
 
 /**
  * Notes list/grid (PLAN.md §6): search, filter chips, pinned-first cards with
@@ -72,6 +82,17 @@ fun NotesScreen(
 
     val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
+    val gridState = rememberLazyGridState()
+    val scope = rememberCoroutineScope()
+    // Nav re-tap on the active tab scrolls the grid to the top (V2-SPEC item 13).
+    LaunchedEffect(Unit) {
+        ShellSignals.flow.collect { msg ->
+            if (msg.tab == NavTab.NOTES && msg.signal == ShellSignal.SCROLL_TOP) {
+                scope.launch { gridState.animateScrollToItem(0) }
+            }
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             // Header + grid/list toggle.
@@ -79,8 +100,21 @@ fun NotesScreen(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                BasicText("Notes", style = AuraType.title.copy(color = tokens.colors.textPrimary))
-                Spacer(Modifier.weight(1f))
+                Column(Modifier.weight(1f)) {
+                    BasicText(
+                        "YOUR LIBRARY",
+                        style = AuraType.labelSm.copy(color = tokens.colors.textSecondary)
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    BasicText("Notes", style = AuraType.titleLg.copy(color = tokens.colors.textPrimary))
+                }
+                if (notes.isNotEmpty()) {
+                    val pinned = notes.count { it.pinned }
+                    val countText = "${notes.size} ${if (notes.size == 1) "note" else "notes"}" +
+                        if (pinned > 0) " · $pinned pinned" else ""
+                    BasicText(countText, style = AuraType.bodySm.copy(color = tokens.colors.textSecondary))
+                    Spacer(Modifier.width(12.dp))
+                }
                 Box(
                     Modifier
                         .size(40.dp)
@@ -110,13 +144,18 @@ fun NotesScreen(
             Spacer(Modifier.height(12.dp))
 
             if (notes.isEmpty()) {
-                EmptyNotes(filter = filter, searching = query.isNotBlank())
+                EmptyNotes(
+                    filter = filter,
+                    searching = query.isNotBlank(),
+                    onCreate = { onOpenNote(0) }
+                )
             } else {
                 LazyVerticalGrid(
+                    state = gridState,
                     columns = GridCells.Fixed(if (isGrid) 2 else 1),
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
-                        start = 16.dp, end = 16.dp, top = 4.dp,
+                        start = 20.dp, end = 20.dp, top = 4.dp,
                         bottom = navInset + 110.dp
                     ),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -205,7 +244,8 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit) {
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp)
-            .height(46.dp)
+            .height(48.dp)
+            .auraSheetShadow(RoundedCornerShape(tokens.radii.pill))
             .clip(RoundedCornerShape(tokens.radii.pill))
             .background(tokens.colors.surface)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.pill))
@@ -244,14 +284,22 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit) {
 }
 
 @Composable
-private fun EmptyNotes(filter: NoteFilter, searching: Boolean) {
+private fun EmptyNotes(filter: NoteFilter, searching: Boolean, onCreate: () -> Unit) {
     val (glyph, title, subtitle) = when {
         searching -> Triple(EmptyGlyph.SEARCH, "No matches", "Try a different search.")
         filter is NoteFilter.Trash -> Triple(EmptyGlyph.TRASH, "Trash is empty", "Deleted notes rest here for 30 days.")
         filter is NoteFilter.Archived -> Triple(EmptyGlyph.ARCHIVE, "Nothing archived", "Archived notes stay out of the way.")
-        else -> Triple(EmptyGlyph.NOTES, "No notes yet", "Tap + to capture your first note.")
+        else -> Triple(EmptyGlyph.NOTES, "No notes yet", "Start with a blank page — your first note is one tap away.")
     }
-    AuraEmptyState(glyph = glyph, title = title, subtitle = subtitle)
+    // P0 (ux.md §3): the first-run empty state gets a real CTA button, not inert text.
+    val isFirstRun = !searching && filter is NoteFilter.All
+    AuraEmptyState(
+        glyph = glyph,
+        title = title,
+        subtitle = subtitle,
+        actionLabel = if (isFirstRun) "New note" else null,
+        onAction = if (isFirstRun) onCreate else null
+    )
 }
 
 @Composable
@@ -275,9 +323,11 @@ private fun FolderMoveOverlay(
         Column(
             Modifier
                 .padding(24.dp)
+                .auraFloatShadow(RoundedCornerShape(tokens.radii.lg))
                 .clip(RoundedCornerShape(tokens.radii.lg))
                 .background(tokens.colors.surface)
                 .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.lg))
+                .auraTopHighlight(tokens.radii.lg)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -285,7 +335,7 @@ private fun FolderMoveOverlay(
                 )
                 .padding(20.dp)
         ) {
-            BasicText("Move to folder", style = AuraType.label.copy(color = tokens.colors.textSecondary))
+            BasicText("MOVE TO FOLDER", style = AuraType.labelSm.copy(color = tokens.colors.textSecondary))
             Spacer(Modifier.height(12.dp))
             com.fadghost.notesapp.ui.components.FlowChips {
                 PlainChip("None", selected = false) { onPick(null) }

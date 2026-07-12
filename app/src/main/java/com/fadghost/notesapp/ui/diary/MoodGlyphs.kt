@@ -40,7 +40,12 @@ import com.fadghost.notesapp.ui.theme.Aura
 fun MoodGlyph(mood: Mood, color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         val s = size.minDimension
-        val st = Stroke(width = s * 0.06f, cap = StrokeCap.Round)
+        // Regular icon tier (visual.md §3): fixed 1.75 dp pen, Round cap + join.
+        val st = Stroke(
+            width = 1.75.dp.toPx(),
+            cap = StrokeCap.Round,
+            join = androidx.compose.ui.graphics.StrokeJoin.Round
+        )
         // Face ring.
         drawCircle(color, radius = s * 0.42f, center = Offset(s / 2f, s / 2f), style = st)
         // Eyes.

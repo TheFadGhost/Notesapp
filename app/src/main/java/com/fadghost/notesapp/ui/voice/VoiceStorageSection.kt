@@ -23,6 +23,7 @@ import com.fadghost.notesapp.data.audio.AudioStorage
 import com.fadghost.notesapp.ui.ai.SoftButton
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraType
+import com.fadghost.notesapp.ui.theme.auraSheetShadow
 
 /**
  * Settings → Storage card (PLAN.md §6): total audio-attachment size plus a
@@ -37,17 +38,18 @@ fun VoiceStorageSection(viewModel: VoiceStorageViewModel = hiltViewModel()) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .auraSheetShadow(RoundedCornerShape(tokens.radii.md))
             .clip(RoundedCornerShape(tokens.radii.md))
             .background(tokens.colors.surface)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.md))
             .padding(16.dp)
     ) {
-        BasicText("Storage", style = AuraType.label.copy(color = tokens.colors.textSecondary))
+        BasicText("STORAGE", style = AuraType.labelSm.copy(color = tokens.colors.textSecondary))
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                BasicText("Voice attachments", style = AuraType.body.copy(color = tokens.colors.textPrimary))
-                BasicText(AudioStorage.formatSize(total), style = AuraType.label.copy(color = tokens.colors.textSecondary))
+                BasicText("Voice attachments", style = AuraType.bodyLg.copy(color = tokens.colors.textPrimary))
+                BasicText(AudioStorage.formatSize(total), style = AuraType.bodySm.copy(color = tokens.colors.textSecondary))
             }
             SoftButton("Clear orphans", filled = false, onClick = viewModel::clearOrphans)
         }

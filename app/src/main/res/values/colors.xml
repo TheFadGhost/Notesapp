@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="window_bg">#1C1A17</color>
+    <!-- Warm neutral splash background — bearable on both light and dark themes. -->
+    <color name="splash_bg">#2A2621</color>
     <!-- Deep charcoal ink — makes the cream note glyph pop; no AI-default periwinkle. -->
     <color name="ic_launcher_bg">#23272E</color>
 </resources>

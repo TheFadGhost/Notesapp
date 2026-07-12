@@ -1,15 +1,16 @@
 package com.fadghost.notesapp.ui.shell
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,7 +26,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -34,11 +34,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.LaunchedEffect
@@ -55,6 +61,8 @@ import com.fadghost.notesapp.ui.notes.NotesScreen
 import com.fadghost.notesapp.ui.screens.SettingsScreen
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraType
+import com.fadghost.notesapp.ui.theme.LocalReduceMotion
+import com.fadghost.notesapp.ui.theme.MotionTokens
 
 @Composable
 fun AppShell(
@@ -65,7 +73,8 @@ fun AppShell(
     captureVm: com.fadghost.notesapp.ui.capture.CaptureViewModel = hiltViewModel()
 ) {
     val tokens = Aura.tokens
-    val reduceMotion = com.fadghost.notesapp.ui.theme.LocalReduceMotion.current
+    val reduceMotion = LocalReduceMotion.current
+    val density = LocalDensity.current
     var selectedTab by rememberSaveable { mutableStateOf(NavTab.NOTES) }
     var captureVisible by remember { mutableStateOf(false) }
     // Editor overlay: null == list; value == open note id (0 == new). Survives config change.
@@ -74,12 +83,18 @@ fun AppShell(
     var showQuickReminder by remember { mutableStateOf(false) }
     var showVoiceCapture by remember { mutableStateOf(false) }
 
+    // Contextual FAB: behaviour + visibility follow the active tab (V2-SPEC item 4).
+    val fabMode = fabModeFor(selectedTab)
+    var fabHidden by remember { mutableStateOf(false) }
+    LaunchedEffect(selectedTab) { fabHidden = false }
+
     // Capture paths (PLAN.md §6): tile / shortcuts / share → route into the shell.
     val captureRequest by CaptureLaunch.request.collectAsState()
     LaunchedEffect(captureRequest) {
         when (val req = captureRequest) {
             is CaptureRequest.NewNote -> { editorNoteId = 0L; restoringDraft = false }
-            is CaptureRequest.Voice -> { editorNoteId = null; captureVisible = true }
+            // Voice shortcut goes straight to the recording sheet (direct action).
+            is CaptureRequest.Voice -> { editorNoteId = null; showVoiceCapture = true }
             is CaptureRequest.TodayDiary -> { selectedTab = NavTab.DIARY; editorNoteId = null }
             is CaptureRequest.SharedText -> captureVm.createNoteFromText(req.text)
             null -> {}
@@ -117,36 +132,69 @@ fun AppShell(
 
     val recoverableDraft by draftRecovery.draft.collectAsState()
 
-    val systemBars = WindowInsets.systemBars.asPaddingValues()
     val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    // Hide-on-scroll: watch child scroll direction and toggle the FAB (ux.md §2).
+    val fabNestedScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < -6f) fabHidden = true
+                else if (available.y > 6f) fabHidden = false
+                return Offset.Zero
+            }
+        }
+    }
+
+    // Back closes the top overlay instead of exiting the app (V2-SPEC item 12).
+    BackHandler(enabled = captureVisible) { captureVisible = false }
+    BackHandler(enabled = editorNoteId != null) { editorNoteId = null; restoringDraft = false }
+
+    // One holder preserves each tab's UI state (scroll position, rememberSaveable)
+    // across the shared-axis transition (V2-SPEC item 7; platform.md §3).
+    val stateHolder = rememberSaveableStateHolder()
+    val slidePx = with(density) { 24.dp.roundToPx() }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(tokens.colors.background)
     ) {
-        // Content layer (respects top inset; nav bar floats over the bottom).
+        // Content layer. Single-owner insets: each screen applies statusBarsPadding
+        // exactly once; the shell no longer pads the top (V2-SPEC item 6).
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = systemBars.calculateTopPadding())
+                .nestedScroll(fabNestedScroll)
         ) {
             AnimatedContent(
                 targetState = selectedTab,
                 transitionSpec = {
-                    fadeIn(com.fadghost.notesapp.ui.theme.MotionTokens.mediumFinite(reduceMotion))
-                        .togetherWith(fadeOut(com.fadghost.notesapp.ui.theme.MotionTokens.mediumFinite(reduceMotion)))
+                    if (reduceMotion) {
+                        fadeIn(tween(120)).togetherWith(fadeOut(tween(120)))
+                    } else {
+                        val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                        (slideInHorizontally(
+                            tween(220, easing = MotionTokens.EmphasizedDecelerate)
+                        ) { dir * slidePx } + fadeIn(tween(180)))
+                            .togetherWith(
+                                slideOutHorizontally(
+                                    tween(200, easing = MotionTokens.EmphasizedDecelerate)
+                                ) { -dir * slidePx / 2 } + fadeOut(tween(140))
+                            )
+                    }
                 },
                 label = "tab"
             ) { tab ->
-                when (tab) {
-                    NavTab.NOTES -> NotesScreen(onOpenNote = { editorNoteId = it })
-                    NavTab.DIARY -> DiaryScreen()
-                    NavTab.CALENDAR -> CalendarScreen()
-                    NavTab.SETTINGS -> SettingsScreen(
-                        currentMode = themeMode,
-                        onSelectMode = onSelectThemeMode
-                    )
+                stateHolder.SaveableStateProvider(tab) {
+                    when (tab) {
+                        NavTab.NOTES -> NotesScreen(onOpenNote = { editorNoteId = it })
+                        NavTab.DIARY -> DiaryScreen()
+                        NavTab.CALENDAR -> CalendarScreen()
+                        NavTab.SETTINGS -> SettingsScreen(
+                            currentMode = themeMode,
+                            onSelectMode = onSelectThemeMode
+                        )
+                    }
                 }
             }
         }
@@ -154,35 +202,58 @@ fun AppShell(
         // Floating translucent nav bar (hidden while the editor is open).
         AnimatedVisibility(
             visible = editorNoteId == null,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(tween(160)),
+            exit = fadeOut(tween(160)),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = navInset + 16.dp)
         ) {
             AuraNavBar(
                 selected = selectedTab,
-                onSelect = { selectedTab = it },
-                onCapture = { captureVisible = true }
+                onSelect = { tab ->
+                    // Re-tap the active tab → scroll that screen to the top (V2-SPEC item 13).
+                    if (tab == selectedTab) ShellSignals.send(tab, ShellSignal.SCROLL_TOP)
+                    else selectedTab = tab
+                }
             )
         }
 
-        CaptureSheet(
+        // Capture panel (below the FAB in z-order so the FAB stays tappable).
+        CapturePanel(
             visible = captureVisible,
+            navInset = navInset,
             onDismiss = { captureVisible = false },
             onAction = { action ->
                 when (action.label) {
-                    // Wire "New note" to a blank editor with the keyboard up (PLAN.md §6.9).
                     "New note" -> editorNoteId = 0L
-                    // Wire "New diary entry" to the Diary tab (today's entry is front-and-centre).
                     "New diary entry" -> { selectedTab = NavTab.DIARY; editorNoteId = null }
-                    // Wire "Voice ramble" to the spring-up recording sheet (PLAN.md §5).
                     "Voice ramble" -> showVoiceCapture = true
-                    // Wire "Quick reminder" to the minimal Aura dialog (PLAN.md §4/§8).
                     "Quick reminder" -> showQuickReminder = true
                 }
             }
         )
+
+        // Bottom-right contextual FAB (hidden on Settings and while the editor is open).
+        if (editorNoteId == null && fabMode.visible) {
+            ContextualFab(
+                panelOpen = captureVisible,
+                hidden = fabHidden,
+                onPrimary = {
+                    if (captureVisible) {
+                        captureVisible = false
+                    } else when (fabMode) {
+                        FabMode.CAPTURE_PANEL -> captureVisible = true
+                        FabMode.DIARY_TODAY -> ShellSignals.send(NavTab.DIARY, ShellSignal.FAB_PRIMARY)
+                        FabMode.CALENDAR_NEW -> ShellSignals.send(NavTab.CALENDAR, ShellSignal.FAB_PRIMARY)
+                        FabMode.HIDDEN -> {}
+                    }
+                },
+                onLongPress = { captureVisible = true },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 20.dp, bottom = navInset + 20.dp)
+            )
+        }
 
         com.fadghost.notesapp.ui.reminder.QuickReminderDialog(
             visible = showQuickReminder,
@@ -190,7 +261,7 @@ fun AppShell(
             onCreated = { showQuickReminder = false }
         )
 
-        // Voice ramble from the capture sheet → transcribe into a fresh note, then open it.
+        // Voice ramble from the capture panel → transcribe into a fresh note, then open it.
         com.fadghost.notesapp.ui.voice.VoiceRecordingSheet(
             visible = showVoiceCapture,
             targetNoteId = 0L,
@@ -202,10 +273,10 @@ fun AppShell(
         // Editor overlay above the whole shell.
         AnimatedVisibility(
             visible = editorNoteId != null,
-            enter = slideInVertically(com.fadghost.notesapp.ui.theme.MotionTokens.mediumFinite(reduceMotion)) { it } +
-                fadeIn(com.fadghost.notesapp.ui.theme.MotionTokens.fastFinite(reduceMotion)),
-            exit = slideOutVertically(com.fadghost.notesapp.ui.theme.MotionTokens.mediumFinite(reduceMotion)) { it } +
-                fadeOut(com.fadghost.notesapp.ui.theme.MotionTokens.fastFinite(reduceMotion)),
+            enter = slideInVertically(MotionTokens.mediumFinite(reduceMotion)) { it } +
+                fadeIn(MotionTokens.fastFinite(reduceMotion)),
+            exit = slideOutVertically(MotionTokens.mediumFinite(reduceMotion)) { it } +
+                fadeOut(MotionTokens.fastFinite(reduceMotion)),
             modifier = Modifier.fillMaxSize()
         ) {
             val id = editorNoteId

@@ -7,10 +7,15 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.fadghost.notesapp.data.prefs.ThemeMode
@@ -49,6 +54,11 @@ class MainActivity : FragmentActivity() {
     @Inject lateinit var diaryLaunch: DiaryLaunch
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Paint the window with the last-used theme background so a Light-theme user
+        // doesn't see the static dark windowBackground flash before Compose draws.
+        window.setBackgroundDrawable(
+            android.graphics.drawable.ColorDrawable(BootColors.windowBackground(this))
+        )
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         handleDeepLink(intent)
@@ -134,6 +144,22 @@ private fun NotesRoot(viewModel: MainViewModel = hiltViewModel()) {
     val target = ThemeResolver.baseTokens(mode, systemDark)
         .withAccent(AuraAccents.accentForIndex(accentIndex))
     val animated by rememberAnimatedTokens(target, reduceMotion)
+
+    // Persist this theme's background for the next cold start, and drive system-bar
+    // icon contrast from the ACTIVE Aura theme (not system dark) — a Light theme under
+    // system Dark must still get dark status-bar icons (platform.md §5).
+    val view = LocalView.current
+    SideEffect {
+        val bg = target.colors.background
+        BootColors.save(context, bg.toArgb())
+        (view.context as? android.app.Activity)?.window?.let { window ->
+            val light = bg.luminance() > 0.5f
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = light
+                isAppearanceLightNavigationBars = light
+            }
+        }
+    }
 
     CompositionLocalProvider(LocalReduceMotion provides reduceMotion) {
         AuraTheme(tokens = animated) {

@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -34,25 +35,32 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.fadghost.notesapp.data.db.entity.DiaryEntry
 import com.fadghost.notesapp.ui.components.FlowChips
 import com.fadghost.notesapp.ui.editor.MarkdownEdits
 import com.fadghost.notesapp.ui.editor.MarkdownVisualTransformation
+import com.fadghost.notesapp.ui.shell.NavTab
+import com.fadghost.notesapp.ui.shell.ShellSignal
+import com.fadghost.notesapp.ui.shell.ShellSignals
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraType
+import com.fadghost.notesapp.ui.theme.auraSheetShadow
 import com.fadghost.notesapp.util.Markdown
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -108,6 +116,26 @@ private fun DiaryContent(
     val tokens = Aura.tokens
     val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val todayFocus = remember { FocusRequester() }
+    // Index of the "today" item (after optional on-this-day + the streaks card).
+    val todayIndex = (if (state.onThisDay.isNotEmpty()) 1 else 0) + 1
+
+    // Shell signals: nav re-tap scrolls to top; the FAB jumps to today + raises the IME.
+    LaunchedEffect(Unit) {
+        ShellSignals.flow.collect { msg ->
+            if (msg.tab != NavTab.DIARY) return@collect
+            when (msg.signal) {
+                ShellSignal.SCROLL_TOP -> scope.launch { listState.animateScrollToItem(0) }
+                ShellSignal.FAB_PRIMARY -> scope.launch {
+                    listState.animateScrollToItem(todayIndex)
+                    runCatching { todayFocus.requestFocus() }
+                }
+            }
+        }
+    }
+
     // Local editable state for today's entry, seeded once per calendar day so that
     // background re-emissions (after autosave) never clobber in-progress typing.
     var todayBody by remember { mutableStateOf(TextFieldValue("")) }
@@ -129,13 +157,21 @@ private fun DiaryContent(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            BasicText("Diary", style = AuraType.title.copy(color = tokens.colors.textPrimary))
+            Column {
+                BasicText(
+                    "YOUR JOURNAL",
+                    style = AuraType.labelSm.copy(color = tokens.colors.textSecondary)
+                )
+                Spacer(Modifier.height(2.dp))
+                BasicText("Diary", style = AuraType.titleLg.copy(color = tokens.colors.textPrimary))
+            }
         }
 
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                start = 16.dp, end = 16.dp, top = 4.dp, bottom = navInset + 110.dp
+                start = 20.dp, end = 20.dp, top = 4.dp, bottom = navInset + 110.dp
             ),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -171,15 +207,16 @@ private fun DiaryContent(
                         val next = TextFieldValue(template, TextRange(template.length))
                         todayBody = next
                         onSaveTodayDebounced(next.text, todayMood?.score)
-                    }
+                    },
+                    bodyFocus = todayFocus
                 )
             }
 
             if (state.timeline.isNotEmpty()) {
                 item(key = "timeline-header") {
                     BasicText(
-                        "Past entries",
-                        style = AuraType.label.copy(color = tokens.colors.textSecondary),
+                        "PAST ENTRIES",
+                        style = AuraType.labelSm.copy(color = tokens.colors.textSecondary),
                         modifier = Modifier.padding(top = 6.dp, start = 4.dp)
                     )
                 }
@@ -214,12 +251,14 @@ private fun TodayCard(
     mood: Mood?,
     onMoodChange: (Mood?) -> Unit,
     prompts: List<PromptTemplate>,
-    onPrompt: (String) -> Unit
+    onPrompt: (String) -> Unit,
+    bodyFocus: FocusRequester? = null
 ) {
     val tokens = Aura.tokens
     Column(
         Modifier
             .fillMaxWidth()
+            .auraSheetShadow(RoundedCornerShape(tokens.radii.lg))
             .clip(RoundedCornerShape(tokens.radii.lg))
             .background(tokens.colors.surface)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.lg))
@@ -227,14 +266,15 @@ private fun TodayCard(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                BasicText("Today", style = AuraType.label.copy(color = tokens.colors.accent))
-                BasicText(date.format(TODAY_FMT), style = AuraType.title.copy(color = tokens.colors.textPrimary))
+                BasicText("TODAY", style = AuraType.labelSm.copy(color = tokens.colors.accent))
+                Spacer(Modifier.height(2.dp))
+                BasicText(date.format(TODAY_FMT), style = AuraType.titleLg.copy(color = tokens.colors.textPrimary))
             }
         }
         Spacer(Modifier.height(14.dp))
         MoodPicker(selected = mood, onSelect = onMoodChange)
         Spacer(Modifier.height(14.dp))
-        DiaryBodyField(body = body, onBodyChange = onBodyChange, placeholder = "Write about your day…")
+        DiaryBodyField(body = body, onBodyChange = onBodyChange, placeholder = "Write about your day…", focusRequester = bodyFocus)
 
         if (body.text.isBlank() && prompts.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
@@ -254,7 +294,8 @@ private fun DiaryBodyField(
     body: TextFieldValue,
     onBodyChange: (TextFieldValue) -> Unit,
     placeholder: String,
-    minHeight: androidx.compose.ui.unit.Dp = 120.dp
+    minHeight: androidx.compose.ui.unit.Dp = 120.dp,
+    focusRequester: FocusRequester? = null
 ) {
     val tokens = Aura.tokens
     val transformation = remember(tokens) {
@@ -274,7 +315,9 @@ private fun DiaryBodyField(
             textStyle = AuraType.body.copy(color = tokens.colors.textPrimary),
             cursorBrush = SolidColor(tokens.colors.accent),
             visualTransformation = transformation,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
         )
     }
 }
@@ -306,6 +349,7 @@ private fun StatsCard(state: DiaryUiState, onOpenDay: (LocalDate) -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
+            .auraSheetShadow(RoundedCornerShape(tokens.radii.lg))
             .clip(RoundedCornerShape(tokens.radii.lg))
             .background(tokens.colors.surface)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.lg))
@@ -316,7 +360,7 @@ private fun StatsCard(state: DiaryUiState, onOpenDay: (LocalDate) -> Unit) {
             StreakStat("Longest streak", state.streaks.longest, Modifier.weight(1f))
         }
         Spacer(Modifier.height(18.dp))
-        BasicText("Last 5 months", style = AuraType.label.copy(color = tokens.colors.textSecondary))
+        BasicText("LAST 5 MONTHS", style = AuraType.labelSm.copy(color = tokens.colors.textSecondary))
         Spacer(Modifier.height(10.dp))
         DiaryHeatMap(cells = state.heatCells, today = state.today, onOpenDay = onOpenDay)
         Spacer(Modifier.height(10.dp))
@@ -329,7 +373,7 @@ private fun StreakStat(label: String, value: Int, modifier: Modifier = Modifier)
     val tokens = Aura.tokens
     Column(modifier) {
         Row(verticalAlignment = Alignment.Bottom) {
-            BasicText("$value", style = AuraType.title.copy(color = tokens.colors.accent, fontSize = 34.sp))
+            BasicText("$value", style = AuraType.display.copy(color = tokens.colors.accent))
             Spacer(Modifier.width(6.dp))
             BasicText(
                 if (value == 1) "day" else "days",
@@ -349,13 +393,14 @@ private fun OnThisDayCard(items: List<OnThisDayItem>, onOpenDay: (LocalDate) -> 
     Column(
         Modifier
             .fillMaxWidth()
+            .auraSheetShadow(RoundedCornerShape(tokens.radii.lg))
             .clip(RoundedCornerShape(tokens.radii.lg))
             .background(tokens.colors.accent.copy(alpha = 0.10f))
             .border(1.dp, tokens.colors.accent.copy(alpha = 0.35f), RoundedCornerShape(tokens.radii.lg))
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        BasicText("On this day", style = AuraType.label.copy(color = tokens.colors.accent))
+        BasicText("ON THIS DAY", style = AuraType.labelSm.copy(color = tokens.colors.accent))
         items.forEach { item ->
             val date = runCatching { LocalDate.parse(item.entry.date) }.getOrNull()
             Column(
@@ -394,6 +439,7 @@ private fun TimelineCard(entry: DiaryEntry, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
+            .auraSheetShadow(RoundedCornerShape(tokens.radii.md))
             .clip(RoundedCornerShape(tokens.radii.md))
             .background(tokens.colors.surface)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.md))
@@ -409,7 +455,7 @@ private fun TimelineCard(entry: DiaryEntry, onClick: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 BasicText(
                     date?.format(CARD_FMT) ?: entry.date,
-                    style = AuraType.body.copy(color = tokens.colors.textPrimary)
+                    style = AuraType.bodyLg.copy(color = tokens.colors.textPrimary)
                 )
                 Mood.fromScore(entry.mood)?.let {
                     Spacer(Modifier.width(8.dp))
@@ -421,7 +467,7 @@ private fun TimelineCard(entry: DiaryEntry, onClick: () -> Unit) {
                 Spacer(Modifier.height(4.dp))
                 BasicText(
                     preview,
-                    style = AuraType.label.copy(color = tokens.colors.textSecondary),
+                    style = AuraType.bodySm.copy(color = tokens.colors.textSecondary),
                     maxLines = 2
                 )
             }
@@ -475,6 +521,9 @@ private fun DiaryDayEditor(
         if (loaded) viewModel.saveEntryNow(date, body.text, mood?.score)
     }
 
+    // Back closes the day editor (saving first) instead of exiting the app.
+    androidx.activity.compose.BackHandler { persist(); onClose() }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -493,7 +542,7 @@ private fun DiaryDayEditor(
                 Spacer(Modifier.weight(1f))
             }
             Spacer(Modifier.height(8.dp))
-            BasicText(date.format(TODAY_FMT), style = AuraType.title.copy(color = tokens.colors.textPrimary))
+            BasicText(date.format(TODAY_FMT), style = AuraType.titleLg.copy(color = tokens.colors.textPrimary))
             Spacer(Modifier.height(16.dp))
             MoodPicker(selected = mood, onSelect = { m -> mood = m; viewModel.saveEntryNow(date, body.text, m?.score) })
             Spacer(Modifier.height(16.dp))

@@ -49,6 +49,9 @@ import com.fadghost.notesapp.ui.components.AuraGlyph
 import com.fadghost.notesapp.ui.components.Glyph
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraType
+import com.fadghost.notesapp.ui.theme.auraFloatShadow
+import com.fadghost.notesapp.ui.theme.auraSheetShadow
+import com.fadghost.notesapp.ui.theme.auraTopHighlight
 
 /**
  * Settings → AI section (PLAN.md §5): paste/test/clear key, text + STT model
@@ -77,16 +80,17 @@ fun AiSettingsSection(viewModel: AiSettingsViewModel = hiltViewModel()) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .auraSheetShadow(RoundedCornerShape(tokens.radii.md))
             .clip(RoundedCornerShape(tokens.radii.md))
             .background(tokens.colors.surface)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.md))
             .padding(16.dp)
     ) {
-        BasicText("AI", style = AuraType.label.copy(color = tokens.colors.textSecondary))
+        BasicText("AI", style = AuraType.labelSm.copy(color = tokens.colors.textSecondary))
         Spacer(Modifier.height(12.dp))
 
         // --- Key ---
-        BasicText("OpenRouter API key", style = AuraType.body.copy(color = tokens.colors.textPrimary))
+        BasicText("OpenRouter API key", style = AuraType.bodyLg.copy(color = tokens.colors.textPrimary))
         BasicText(
             if (hasKey) "Stored securely (Keystore-encrypted, never backed up)"
             else "Add later — AI stays optional",
@@ -265,15 +269,17 @@ private fun ModelPickerSheet(
                 Column(
                     Modifier
                         .fillMaxWidth()
+                        .auraFloatShadow(RoundedCornerShape(topStart = tokens.radii.lg, topEnd = tokens.radii.lg))
                         .clip(RoundedCornerShape(topStart = tokens.radii.lg, topEnd = tokens.radii.lg))
                         .background(tokens.colors.surface)
                         .border(1.dp, tokens.colors.outline, RoundedCornerShape(topStart = tokens.radii.lg, topEnd = tokens.radii.lg))
+                        .auraTopHighlight(tokens.radii.lg)
                         .clickable(remember { MutableInteractionSource() }, indication = null, onClick = {})
                         .navigationBarsPadding()
                         .padding(20.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        BasicText(title, style = AuraType.title.copy(color = tokens.colors.textPrimary))
+                        BasicText(title, style = AuraType.titleLg.copy(color = tokens.colors.textPrimary))
                         Spacer(Modifier.weight(1f))
                         SoftButton(if (busy) "…" else "Refresh", filled = false, onClick = onRefresh)
                     }

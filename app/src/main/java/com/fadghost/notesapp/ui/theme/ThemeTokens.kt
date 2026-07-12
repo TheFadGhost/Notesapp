@@ -47,12 +47,43 @@ data class ThemeElevationAlphas(
     val pressed: Float
 )
 
+/**
+ * A single soft, tinted paper shadow (V2-SPEC #9, visual.md §2). [color] is already
+ * alpha-baked and is a warm ink pull, never `#000` on paper themes. Paper does not
+ * throw hard black shadows — it throws low-contrast warm ones.
+ */
+@Immutable
+data class ThemeShadow(
+    val color: Color,
+    val blur: Dp,
+    val y: Dp,
+    val spread: Dp = 0.dp
+)
+
+/**
+ * The 3-plane depth model. Ground (screen bg) casts nothing. [sheet] = cards, search
+ * bar, section cards (soft contact shadow). [float] = nav pill, capture popup, dialogs
+ * (ambient lift shadow, paired with [ThemeTokens.innerHighlight]).
+ */
+@Immutable
+data class ThemeShadows(
+    val sheet: ThemeShadow,
+    val float: ThemeShadow
+)
+
 @Immutable
 data class ThemeTokens(
     val colors: ThemeColors,
     val radii: ThemeRadii = ThemeRadii(),
     val blur: ThemeBlur = ThemeBlur(),
-    val elevation: ThemeElevationAlphas
+    val elevation: ThemeElevationAlphas,
+    val shadows: ThemeShadows,
+    /**
+     * A 1-dp top-edge highlight for Float surfaces — the paper analogue of a glass
+     * bezel (a light source from above catching the sheet's top edge). Carries most of
+     * the lift on dark themes where a drop shadow reads faintly (visual.md §2.3).
+     */
+    val innerHighlight: Color
 )
 
 /**
@@ -75,7 +106,13 @@ val LightTokens = ThemeTokens(
         translucentTint = 0.72f,
         scrim = 0.32f,
         pressed = 0.10f
-    )
+    ),
+    // Warm espresso shadow (#3A2E1F), never grey/black — it must belong to paper.
+    shadows = ThemeShadows(
+        sheet = ThemeShadow(Color(0x1A3A2E1F), blur = 10.dp, y = 3.dp),
+        float = ThemeShadow(Color(0x243A2E1F), blur = 22.dp, y = 8.dp)
+    ),
+    innerHighlight = Color(0x0F23272E) // textPrimary @ ~6%
 )
 
 /**
@@ -98,7 +135,14 @@ val DarkTokens = ThemeTokens(
         translucentTint = 0.60f,
         scrim = 0.48f,
         pressed = 0.14f
-    )
+    ),
+    // On dark, a light shadow reads wrong — lean on near-black-but-warm ambient +
+    // the inner top highlight (below) for the lift signal.
+    shadows = ThemeShadows(
+        sheet = ThemeShadow(Color(0x47000000), blur = 12.dp, y = 4.dp),
+        float = ThemeShadow(Color(0x66000000), blur = 26.dp, y = 10.dp)
+    ),
+    innerHighlight = Color(0x14F2E7D5) // textPrimary @ ~8%
 )
 
 /**
@@ -121,7 +165,12 @@ val AmoledTokens = ThemeTokens(
         translucentTint = 0.66f,
         scrim = 0.58f,
         pressed = 0.16f
-    )
+    ),
+    shadows = ThemeShadows(
+        sheet = ThemeShadow(Color(0x73000000), blur = 10.dp, y = 3.dp),
+        float = ThemeShadow(Color(0x8C000000), blur = 22.dp, y = 8.dp)
+    ),
+    innerHighlight = Color(0x14F5ECDD) // textPrimary @ ~8%
 )
 
 /**
@@ -143,7 +192,12 @@ val GreyTokens = ThemeTokens(
         translucentTint = 0.62f,
         scrim = 0.50f,
         pressed = 0.14f
-    )
+    ),
+    shadows = ThemeShadows(
+        sheet = ThemeShadow(Color(0x3D000000), blur = 12.dp, y = 4.dp),
+        float = ThemeShadow(Color(0x5C000000), blur = 24.dp, y = 9.dp)
+    ),
+    innerHighlight = Color(0x14ECE5D9) // textPrimary @ ~8%
 )
 
 /**

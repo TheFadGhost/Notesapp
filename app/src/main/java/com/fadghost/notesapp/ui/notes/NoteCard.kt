@@ -44,6 +44,7 @@ import com.fadghost.notesapp.ui.components.Glyph
 import com.fadghost.notesapp.ui.components.TagChip
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraType
+import com.fadghost.notesapp.ui.theme.auraSheetShadow
 import kotlin.math.abs
 import kotlinx.coroutines.launch
 
@@ -88,6 +89,9 @@ fun NoteCard(
                 translationY = (1f - appear.value) * 40f
                 translationX = offsetX.value
             }
+            // Sheet-plane contact shadow (rasterised once; rides the swipe layer so it
+            // never re-rasterises per frame — visual.md §2.3 perf note).
+            .auraSheetShadow(RoundedCornerShape(tokens.radii.md))
             .clip(RoundedCornerShape(tokens.radii.md))
             .background(tokens.colors.surface)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.md))
@@ -125,7 +129,7 @@ fun NoteCard(
                     scope.launch { offsetX.snapTo(offsetX.value + dragAmount) }
                 }
             }
-            .padding(14.dp)
+            .padding(16.dp)
     ) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -139,7 +143,7 @@ fun NoteCard(
                 }
                 BasicText(
                     text = highlight(note.title.ifBlank { "Untitled" }, query, tokens.colors.accent),
-                    style = AuraType.body.copy(color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold),
+                    style = AuraType.bodyLg.copy(color = tokens.colors.textPrimary),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
@@ -149,7 +153,7 @@ fun NoteCard(
                 Spacer(Modifier.height(6.dp))
                 BasicText(
                     text = highlight(note.preview, query, tokens.colors.accent),
-                    style = AuraType.label.copy(color = tokens.colors.textSecondary),
+                    style = AuraType.bodySm.copy(color = tokens.colors.textSecondary),
                     maxLines = 4,
                     overflow = TextOverflow.Ellipsis
                 )

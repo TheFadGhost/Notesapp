@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AuraSerif = Fraunces (variable), OFL 1.1. Display/title family for the Aura
+  design system (V2-SPEC #8). Subset + axis-pinned (opsz=30, SOFT=40, WONK=0);
+  the wght axis (100-900) is retained and driven per-token via FontVariation in
+  AuraType.kt. License: assets/fonts/OFL-Fraunces.txt.
+-->
+<font-family xmlns:app="http://schemas.android.com/apk/res-auto">
+    <font
+        app:fontStyle="normal"
+        app:fontWeight="460"
+        app:font="@font/fraunces_variable" />
+</font-family>

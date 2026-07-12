@@ -1,31 +1,32 @@
 package com.fadghost.notesapp.ui.shell
 
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -34,39 +35,97 @@ import com.fadghost.notesapp.ui.components.rememberAuraHaptics
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.LocalReduceMotion
 import com.fadghost.notesapp.ui.theme.MotionTokens
+import kotlin.math.abs
+import kotlin.math.sign
+import kotlinx.coroutines.launch
 
-/** Custom translucent floating pill nav bar (PLAN.md §4). No Material components. */
+// Fixed geometry (V2-SPEC item 3): 4 equal 64dp slots, 40dp bubble.
+private val TAB_SLOT = 64.dp
+private val BUBBLE = 40.dp
+
+/**
+ * Custom translucent floating pill nav bar (PLAN.md §4, V2-SPEC items 1-3). A single
+ * traveling circle ("the bubble") sits behind the icon row and slides to the selected
+ * tab with a decoupled arrival sway (trampoline, sideways). No Material components; the
+ * old per-tab blurred glow is gone. The "+" now lives in a bottom-right FAB (AppShell).
+ */
 @Composable
 fun AuraNavBar(
     selected: NavTab,
     onSelect: (NavTab) -> Unit,
-    onCapture: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val tokens = Aura.tokens
+    val density = LocalDensity.current
+    val reduceMotion = LocalReduceMotion.current
     val haptics = rememberAuraHaptics()
-    Row(
+
+    val slotPx = with(density) { TAB_SLOT.toPx() }
+    val bubbleRadiusPx = with(density) { BUBBLE.toPx() } / 2f
+    // Tab centre X relative to the pill's inner (post-padding) content box.
+    fun centerFor(i: Int) = i * slotPx + slotPx / 2f
+
+    val selIndex = NavTab.entries.indexOf(selected)
+    val bubbleX = remember { Animatable(centerFor(selIndex)) }
+    val swayX = remember { Animatable(0f) }
+    var prevIndex by remember { mutableStateOf(selIndex) }
+
+    // Travel + sway are decoupled Animatables on the same value → interruption-safe.
+    LaunchedEffect(selected) {
+        val from = prevIndex
+        prevIndex = selIndex
+        val target = centerFor(selIndex)
+        val dir = sign((selIndex - from).toFloat())
+        if (!reduceMotion && dir != 0f) {
+            launch {
+                swayX.snapTo(0f)
+                swayX.animateTo(0f, MotionTokens.NavSway, initialVelocity = dir * 800f)
+            }
+        }
+        // Suspends until the bubble actually settles; interruption cancels before this.
+        bubbleX.animateTo(target, MotionTokens.navTravel(reduceMotion))
+        // Landing haptic on settle — only for real travel, not first-frame / re-mount.
+        if (dir != 0f) haptics.tick() // V2-SPEC item 13
+    }
+
+    Box(
         modifier = modifier
             .height(64.dp)
             .clip(RoundedCornerShape(tokens.radii.pill))
             .background(tokens.colors.surfaceTranslucent)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.pill))
             .padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
+        contentAlignment = Alignment.CenterStart
     ) {
-        NavTab.entries.forEach { tab ->
-            TabItem(
-                tab = tab,
-                selected = tab == selected,
-                onClick = {
-                    if (tab != selected) haptics.tick()
-                    onSelect(tab)
+        // Bubble layer — drawn first so it stays behind the glyphs.
+        Box(
+            modifier = Modifier
+                .size(BUBBLE)
+                .graphicsLayer {
+                    val stretch = if (reduceMotion) 0f
+                    else (abs(bubbleX.velocity) / 4000f).coerceIn(0f, 0.12f)
+                    translationX = bubbleX.value + swayX.value - bubbleRadiusPx
+                    scaleX = 1f + stretch
+                    scaleY = 1f - stretch * 0.6f
+                    transformOrigin = TransformOrigin(0.5f, 0.5f)
                 }
-            )
+                .clip(CircleShape)
+                .background(tokens.colors.accent.copy(alpha = 0.12f))
+                .border(1.dp, tokens.colors.textPrimary.copy(alpha = 0.12f), CircleShape)
+        )
+
+        Row(
+            modifier = Modifier.fillMaxHeight(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            NavTab.entries.forEach { tab ->
+                TabItem(
+                    tab = tab,
+                    selected = tab == selected,
+                    onClick = { onSelect(tab) }
+                )
+            }
         }
-        Spacer(Modifier.width(4.dp))
-        CaptureButton(onClick = { haptics.confirm(); onCapture() })
     }
 }
 
@@ -77,15 +136,15 @@ private fun TabItem(
     onClick: () -> Unit
 ) {
     val tokens = Aura.tokens
-    val reduceMotion = LocalReduceMotion.current
-    val bouncy = MotionTokens.bouncy<Float>(reduceMotion)
-    val highlight by animateFloatAsState(if (selected) 1f else 0f, bouncy, label = "highlight")
-    val scale by animateFloatAsState(if (selected) 1.18f else 1f, bouncy, label = "scale")
-    val iconColor = lerpColor(tokens.colors.textSecondary, tokens.colors.accent, highlight)
-
+    // Selected glyph tints to accent (V2-SPEC item 1); crossfade, no per-frame relayout.
+    val iconColor by animateColorAsState(
+        if (selected) tokens.colors.accent else tokens.colors.textSecondary,
+        label = "navIconColor"
+    )
     Box(
         modifier = Modifier
-            .size(width = 56.dp, height = 48.dp)
+            .width(TAB_SLOT)
+            .fillMaxHeight()
             .clip(RoundedCornerShape(tokens.radii.pill))
             .clickable(
                 interactionSource = remembered(),
@@ -98,51 +157,10 @@ private fun TabItem(
             },
         contentAlignment = Alignment.Center
     ) {
-        // Soft pill highlight — blurred glow behind the active icon (blur region kept tiny).
-        if (highlight > 0.01f) {
-            Box(
-                modifier = Modifier
-                    .size(width = 44.dp, height = 34.dp)
-                    .graphicsLayer { alpha = highlight * 0.9f }
-                    .blur(tokens.blur.navPill * highlight.coerceIn(0f, 1f))
-                    .clip(RoundedCornerShape(tokens.radii.pill))
-                    .background(tokens.colors.accent.copy(alpha = tokens.elevation.pressed + 0.06f))
-            )
-        }
-        TabGlyph(
-            icon = tab.icon,
-            color = iconColor,
-            modifier = Modifier
-                .size(24.dp)
-                .scale(scale)
-        )
-    }
-}
-
-@Composable
-private fun CaptureButton(onClick: () -> Unit) {
-    val tokens = Aura.tokens
-    Box(
-        modifier = Modifier
-            .size(48.dp)
-            .clip(CircleShape)
-            .background(tokens.colors.accent.copy(alpha = 0.85f))
-            .border(1.dp, tokens.colors.outline, CircleShape)
-            .clickable(
-                interactionSource = remembered(),
-                indication = null,
-                onClick = onClick
-            )
-            .semantics { contentDescription = "Capture" },
-        contentAlignment = Alignment.Center
-    ) {
-        PlusGlyph(color = Color.White, modifier = Modifier.size(28.dp))
+        TabGlyph(icon = tab.icon, color = iconColor, modifier = Modifier.size(24.dp))
     }
 }
 
 @Composable
 private fun remembered(): MutableInteractionSource =
     androidx.compose.runtime.remember { MutableInteractionSource() }
-
-private fun lerpColor(a: Color, b: Color, t: Float): Color =
-    androidx.compose.ui.graphics.lerp(a, b, t.coerceIn(0f, 1f))

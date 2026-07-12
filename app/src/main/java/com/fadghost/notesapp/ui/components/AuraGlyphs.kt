@@ -3,6 +3,7 @@ package com.fadghost.notesapp.ui.components
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -11,11 +12,16 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.dp
 
 /**
- * Hand-drawn line glyphs for note actions and the editor toolbar. Keeps the
- * visible UI free of Material icon components (PLAN.md §3). One Canvas, switched
- * on [Glyph]; every path is stroked with the caller's [color].
+ * Hand-drawn line glyphs for note actions and the editor toolbar. Keeps the visible
+ * UI free of Material icon components (PLAN.md §3).
+ *
+ * Unified Aura icon grammar (V2-SPEC #10, visual.md §3): 24-unit grid, StrokeCap/Join
+ * .Round ALWAYS, 2-unit corner radius on every rectangle (no hard `drawRect`), and a
+ * stroke clamped to a fixed dp per tier — regular = 1.75 dp, heavy = 2.5 dp (bold /
+ * heading emphasis only). One pen across every size.
  */
 enum class Glyph {
     PIN, ARCHIVE, TRASH, DUPLICATE, FOLDER, TAG, SEARCH, CLOSE, GRID, LIST,
@@ -27,7 +33,8 @@ enum class Glyph {
 fun AuraGlyph(glyph: Glyph, color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         val s = size.minDimension
-        val st = Stroke(width = s * 0.08f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        val st = Stroke(width = 1.75.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        val heavy = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
         when (glyph) {
             Glyph.PIN -> drawPin(color, s, st)
             Glyph.ARCHIVE -> drawArchive(color, s, st)
@@ -39,9 +46,9 @@ fun AuraGlyph(glyph: Glyph, color: Color, modifier: Modifier = Modifier) {
             Glyph.CLOSE -> drawClose(color, s, st)
             Glyph.GRID -> drawGrid(color, s, st)
             Glyph.LIST -> drawList(color, s, st)
-            Glyph.BOLD -> drawBold(color, s, st)
+            Glyph.BOLD -> drawBold(color, s, heavy)
             Glyph.ITALIC -> drawItalic(color, s, st)
-            Glyph.HEADING -> drawHeading(color, s, st)
+            Glyph.HEADING -> drawHeading(color, s, heavy, st)
             Glyph.CHECKLIST -> drawChecklist(color, s, st)
             Glyph.BULLET -> drawBullet(color, s, st)
             Glyph.UNDO -> drawUndo(color, s, st, mirror = false)
@@ -61,15 +68,32 @@ fun AuraGlyph(glyph: Glyph, color: Color, modifier: Modifier = Modifier) {
     }
 }
 
+/** 2-unit corner radius on the 24-unit grid. */
+private fun cr(s: Float) = s * (2f / 24f)
+
+/** Stroked rounded rect — the only rectangle primitive (no sharp `drawRect`). */
+private fun DrawScope.roundRect(c: Color, x: Float, y: Float, w: Float, h: Float, s: Float, st: Stroke) {
+    drawRoundRect(
+        color = c,
+        topLeft = Offset(x, y),
+        size = Size(w, h),
+        cornerRadius = CornerRadius(cr(s), cr(s)),
+        style = st
+    )
+}
+
 private fun DrawScope.drawSparkle(c: Color, s: Float, st: Stroke) {
-    // Four-point sparkle: a big star plus a small one.
+    // Clean 8-point star (matches drawNotesGlyph's spark) + a small companion.
     fun star(cx: Float, cy: Float, r: Float) {
         val p = Path().apply {
             moveTo(cx, cy - r)
-            cubicTo(cx + r * 0.18f, cy - r * 0.18f, cx + r * 0.18f, cy - r * 0.18f, cx + r, cy)
-            cubicTo(cx + r * 0.18f, cy + r * 0.18f, cx + r * 0.18f, cy + r * 0.18f, cx, cy + r)
-            cubicTo(cx - r * 0.18f, cy + r * 0.18f, cx - r * 0.18f, cy + r * 0.18f, cx - r, cy)
-            cubicTo(cx - r * 0.18f, cy - r * 0.18f, cx - r * 0.18f, cy - r * 0.18f, cx, cy - r)
+            lineTo(cx + r * 0.32f, cy - r * 0.32f)
+            lineTo(cx + r, cy)
+            lineTo(cx + r * 0.32f, cy + r * 0.32f)
+            lineTo(cx, cy + r)
+            lineTo(cx - r * 0.32f, cy + r * 0.32f)
+            lineTo(cx - r, cy)
+            lineTo(cx - r * 0.32f, cy - r * 0.32f)
             close()
         }
         drawPath(p, c, style = st)
@@ -79,7 +103,7 @@ private fun DrawScope.drawSparkle(c: Color, s: Float, st: Stroke) {
 }
 
 private fun DrawScope.drawCalendar(c: Color, s: Float, st: Stroke) {
-    drawRect(c, Offset(s * 0.24f, s * 0.28f), Size(s * 0.52f, s * 0.48f), style = st)
+    roundRect(c, s * 0.24f, s * 0.28f, s * 0.52f, s * 0.48f, s, st)
     line(c, s * 0.24f, s * 0.40f, s * 0.76f, s * 0.40f, st)
     line(c, s * 0.36f, s * 0.24f, s * 0.36f, s * 0.32f, st)
     line(c, s * 0.64f, s * 0.24f, s * 0.64f, s * 0.32f, st)
@@ -104,17 +128,16 @@ private fun DrawScope.drawChevronVert(c: Color, s: Float, st: Stroke, up: Boolea
 }
 
 private fun DrawScope.line(c: Color, x1: Float, y1: Float, x2: Float, y2: Float, st: Stroke) =
-    drawLine(c, Offset(x1, y1), Offset(x2, y2), st.width, st.cap)
+    drawLine(c, Offset(x1, y1), Offset(x2, y2), st.width, StrokeCap.Round)
 
 private fun DrawScope.drawPin(c: Color, s: Float, st: Stroke) {
-    // A push-pin: head circle + stem.
     drawCircle(c, s * 0.16f, Offset(s * 0.5f, s * 0.36f), style = st)
     line(c, s * 0.5f, s * 0.52f, s * 0.5f, s * 0.82f, st)
 }
 
 private fun DrawScope.drawArchive(c: Color, s: Float, st: Stroke) {
-    drawRect(c, Offset(s * 0.22f, s * 0.24f), Size(s * 0.56f, s * 0.16f), style = st)
-    drawRect(c, Offset(s * 0.26f, s * 0.40f), Size(s * 0.48f, s * 0.34f), style = st)
+    roundRect(c, s * 0.22f, s * 0.24f, s * 0.56f, s * 0.16f, s, st)
+    roundRect(c, s * 0.26f, s * 0.40f, s * 0.48f, s * 0.34f, s, st)
     line(c, s * 0.42f, s * 0.52f, s * 0.58f, s * 0.52f, st)
 }
 
@@ -134,8 +157,8 @@ private fun DrawScope.drawTrash(c: Color, s: Float, st: Stroke) {
 }
 
 private fun DrawScope.drawDuplicate(c: Color, s: Float, st: Stroke) {
-    drawRect(c, Offset(s * 0.24f, s * 0.24f), Size(s * 0.36f, s * 0.36f), style = st)
-    drawRect(c, Offset(s * 0.40f, s * 0.40f), Size(s * 0.36f, s * 0.36f), style = st)
+    roundRect(c, s * 0.24f, s * 0.24f, s * 0.36f, s * 0.36f, s, st)
+    roundRect(c, s * 0.40f, s * 0.40f, s * 0.36f, s * 0.36f, s, st)
 }
 
 private fun DrawScope.drawFolder(c: Color, s: Float, st: Stroke) {
@@ -175,10 +198,10 @@ private fun DrawScope.drawClose(c: Color, s: Float, st: Stroke) {
 }
 
 private fun DrawScope.drawGrid(c: Color, s: Float, st: Stroke) {
-    drawRect(c, Offset(s * 0.24f, s * 0.24f), Size(s * 0.20f, s * 0.20f), style = st)
-    drawRect(c, Offset(s * 0.56f, s * 0.24f), Size(s * 0.20f, s * 0.20f), style = st)
-    drawRect(c, Offset(s * 0.24f, s * 0.56f), Size(s * 0.20f, s * 0.20f), style = st)
-    drawRect(c, Offset(s * 0.56f, s * 0.56f), Size(s * 0.20f, s * 0.20f), style = st)
+    roundRect(c, s * 0.24f, s * 0.24f, s * 0.20f, s * 0.20f, s, st)
+    roundRect(c, s * 0.56f, s * 0.24f, s * 0.20f, s * 0.20f, s, st)
+    roundRect(c, s * 0.24f, s * 0.56f, s * 0.20f, s * 0.20f, s, st)
+    roundRect(c, s * 0.56f, s * 0.56f, s * 0.20f, s * 0.20f, s, st)
 }
 
 private fun DrawScope.drawList(c: Color, s: Float, st: Stroke) {
@@ -189,14 +212,13 @@ private fun DrawScope.drawList(c: Color, s: Float, st: Stroke) {
     }
 }
 
-private fun DrawScope.drawBold(c: Color, s: Float, st: Stroke) {
-    val thick = Stroke(width = s * 0.13f, cap = StrokeCap.Round)
-    line(c, s * 0.38f, s * 0.28f, s * 0.38f, s * 0.72f, thick)
-    line(c, s * 0.38f, s * 0.30f, s * 0.58f, s * 0.30f, thick)
-    line(c, s * 0.58f, s * 0.30f, s * 0.58f, s * 0.48f, thick)
-    line(c, s * 0.38f, s * 0.50f, s * 0.60f, s * 0.50f, thick)
-    line(c, s * 0.60f, s * 0.50f, s * 0.60f, s * 0.70f, thick)
-    line(c, s * 0.38f, s * 0.70f, s * 0.60f, s * 0.70f, thick)
+private fun DrawScope.drawBold(c: Color, s: Float, heavy: Stroke) {
+    line(c, s * 0.38f, s * 0.28f, s * 0.38f, s * 0.72f, heavy)
+    line(c, s * 0.38f, s * 0.30f, s * 0.58f, s * 0.30f, heavy)
+    line(c, s * 0.58f, s * 0.30f, s * 0.58f, s * 0.48f, heavy)
+    line(c, s * 0.38f, s * 0.50f, s * 0.60f, s * 0.50f, heavy)
+    line(c, s * 0.60f, s * 0.50f, s * 0.60f, s * 0.70f, heavy)
+    line(c, s * 0.38f, s * 0.70f, s * 0.60f, s * 0.70f, heavy)
 }
 
 private fun DrawScope.drawItalic(c: Color, s: Float, st: Stroke) {
@@ -205,23 +227,22 @@ private fun DrawScope.drawItalic(c: Color, s: Float, st: Stroke) {
     line(c, s * 0.56f, s * 0.30f, s * 0.44f, s * 0.70f, st)
 }
 
-private fun DrawScope.drawHeading(c: Color, s: Float, st: Stroke) {
-    val thick = Stroke(width = s * 0.11f, cap = StrokeCap.Round)
-    line(c, s * 0.32f, s * 0.30f, s * 0.32f, s * 0.70f, thick)
-    line(c, s * 0.56f, s * 0.30f, s * 0.56f, s * 0.70f, thick)
-    line(c, s * 0.32f, s * 0.50f, s * 0.56f, s * 0.50f, thick)
+private fun DrawScope.drawHeading(c: Color, s: Float, heavy: Stroke, st: Stroke) {
+    line(c, s * 0.32f, s * 0.30f, s * 0.32f, s * 0.70f, heavy)
+    line(c, s * 0.56f, s * 0.30f, s * 0.56f, s * 0.70f, heavy)
+    line(c, s * 0.32f, s * 0.50f, s * 0.56f, s * 0.50f, heavy)
     line(c, s * 0.66f, s * 0.44f, s * 0.66f, s * 0.70f, st)
 }
 
 private fun DrawScope.drawChecklist(c: Color, s: Float, st: Stroke) {
-    drawRect(c, Offset(s * 0.24f, s * 0.30f), Size(s * 0.16f, s * 0.16f), style = st)
+    roundRect(c, s * 0.24f, s * 0.30f, s * 0.16f, s * 0.16f, s, st)
     val tick = Path().apply {
         moveTo(s * 0.26f, s * 0.38f); lineTo(s * 0.31f, s * 0.43f); lineTo(s * 0.40f, s * 0.30f)
     }
     drawPath(tick, c, style = st)
     line(c, s * 0.50f, s * 0.38f, s * 0.76f, s * 0.38f, st)
     line(c, s * 0.50f, s * 0.62f, s * 0.76f, s * 0.62f, st)
-    drawRect(c, Offset(s * 0.24f, s * 0.54f), Size(s * 0.16f, s * 0.16f), style = st)
+    roundRect(c, s * 0.24f, s * 0.54f, s * 0.16f, s * 0.16f, s, st)
 }
 
 private fun DrawScope.drawBullet(c: Color, s: Float, st: Stroke) {

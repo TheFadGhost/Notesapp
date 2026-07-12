@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AuraSans = Hanken Grotesk (variable), OFL 1.1. Body/UI/label family for the Aura
+  design system (V2-SPEC #8). Subset to Latin-1 + punctuation; the wght axis
+  (100-900) is retained and driven per-token via FontVariation in AuraType.kt.
+  License: assets/fonts/OFL-HankenGrotesk.txt.
+-->
+<font-family xmlns:app="http://schemas.android.com/apk/res-auto">
+    <font
+        app:fontStyle="normal"
+        app:fontWeight="400"
+        app:font="@font/hanken_grotesk_variable" />
+</font-family>
