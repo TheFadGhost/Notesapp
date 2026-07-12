@@ -184,21 +184,35 @@ fun AiSettingsSection(viewModel: AiSettingsViewModel = hiltViewModel()) {
 
     // Model picker sheet.
     val target = picker
+    val sttMode = target == PickerTarget.STT
     ModelPickerSheet(
         visible = target != null,
-        title = if (target == PickerTarget.STT) "Speech-to-text model" else "Text model",
-        current = if (target == PickerTarget.STT) sttModel else textModel,
-        models = if (target == PickerTarget.STT) models.filter { it.supportsAudio || models.none { m -> m.supportsAudio } } else models,
+        title = if (sttMode) "Speech-to-text model" else "Text model",
+        current = if (sttMode) sttModel else textModel,
+        // STT ids are a fixed hardcoded trio that never appear in /models (item 7); the
+        // text picker uses the cached /models list with favourites/recents/free-text.
+        models = if (sttMode) SttModels.LIST else models,
         favorites = favorites,
         recents = recents,
         busy = busy,
+        // STT has no /models source, no favourites, no free-text — just the three ids.
+        sttMode = sttMode,
         onRefresh = viewModel::refreshModels,
         onToggleFavorite = viewModel::toggleFavorite,
         onSelect = { id ->
-            if (target == PickerTarget.STT) viewModel.setSttModel(id) else viewModel.setTextModel(id)
+            if (sttMode) viewModel.setSttModel(id) else viewModel.setTextModel(id)
             picker = null
         },
         onDismiss = { picker = null }
+    )
+}
+
+/** The exactly-three transcription models the STT picker offers (item 7). */
+private object SttModels {
+    val LIST: List<CachedModel> = listOf(
+        CachedModel(id = "openai/gpt-4o-mini-transcribe", name = "GPT-4o mini Transcribe"),
+        CachedModel(id = "openai/gpt-4o-transcribe", name = "GPT-4o Transcribe"),
+        CachedModel(id = "openai/whisper-1", name = "Whisper v1")
     )
 }
 
@@ -249,6 +263,7 @@ private fun ModelPickerSheet(
     favorites: Set<String>,
     recents: List<String>,
     busy: Boolean,
+    sttMode: Boolean = false,
     onRefresh: () -> Unit,
     onToggleFavorite: (String) -> Unit,
     onSelect: (String) -> Unit,
@@ -284,51 +299,65 @@ private fun ModelPickerSheet(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         BasicText(title, style = AuraType.titleLg.copy(color = tokens.colors.textPrimary))
                         Spacer(Modifier.weight(1f))
-                        SoftButton(if (busy) "…" else "Refresh", filled = false, onClick = onRefresh)
+                        // No /models source for transcription — the trio is fixed.
+                        if (!sttMode) SoftButton(if (busy) "…" else "Refresh", filled = false, onClick = onRefresh)
                     }
                     Spacer(Modifier.height(12.dp))
 
-                    // Free-text ID escape hatch (PLAN.md §5).
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(tokens.radii.sm))
-                                .background(tokens.colors.background)
-                                .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.sm))
-                                .padding(12.dp)
-                        ) {
-                            if (freeText.isEmpty()) BasicText("enter any model id…", style = AuraType.body.copy(color = tokens.colors.textSecondary))
-                            BasicTextField(
-                                value = freeText,
-                                onValueChange = { freeText = it },
-                                singleLine = true,
-                                textStyle = AuraType.body.copy(color = tokens.colors.textPrimary),
-                                cursorBrush = SolidColor(tokens.colors.accent),
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                    if (sttMode) {
+                        BasicText(
+                            "Transcription models OpenRouter supports. Cheapest first.",
+                            style = AuraType.label.copy(color = tokens.colors.textSecondary)
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    } else {
+                        // Free-text ID escape hatch (PLAN.md §5) — text models only.
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(tokens.radii.sm))
+                                    .background(tokens.colors.background)
+                                    .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.sm))
+                                    .padding(12.dp)
+                            ) {
+                                if (freeText.isEmpty()) BasicText("enter any model id…", style = AuraType.body.copy(color = tokens.colors.textSecondary))
+                                BasicTextField(
+                                    value = freeText,
+                                    onValueChange = { freeText = it },
+                                    singleLine = true,
+                                    textStyle = AuraType.body.copy(color = tokens.colors.textPrimary),
+                                    cursorBrush = SolidColor(tokens.colors.accent),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            Spacer(Modifier.size(8.dp))
+                            SoftButton("Use", filled = true, onClick = { if (freeText.isNotBlank()) onSelect(freeText.trim()) })
                         }
-                        Spacer(Modifier.size(8.dp))
-                        SoftButton("Use", filled = true, onClick = { if (freeText.isNotBlank()) onSelect(freeText.trim()) })
+                        Spacer(Modifier.height(12.dp))
                     }
 
-                    Spacer(Modifier.height(12.dp))
                     Column(
                         Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        val favModels = models.filter { favorites.contains(it.id) }
-                        val recentModels = recents.mapNotNull { r -> models.firstOrNull { it.id == r } }
-                        if (favModels.isNotEmpty()) {
-                            GroupLabel("Favourites")
-                            favModels.forEach { ModelItem(it, it.id == current, favorites.contains(it.id), onSelect, onToggleFavorite) }
+                        if (sttMode) {
+                            // Fixed trio: no favourites/recents grouping, no pin affordance.
+                            models.forEach { ModelItem(it, it.id == current, favorite = false, onSelect = onSelect, onToggleFavorite = null) }
+                        } else {
+                            val favModels = models.filter { favorites.contains(it.id) }
+                            val recentModels = recents.mapNotNull { r -> models.firstOrNull { it.id == r } }
+                            if (favModels.isNotEmpty()) {
+                                GroupLabel("Favourites")
+                                favModels.forEach { ModelItem(it, it.id == current, favorites.contains(it.id), onSelect, onToggleFavorite) }
+                            }
+                            if (recentModels.isNotEmpty()) {
+                                GroupLabel("Recent")
+                                recentModels.forEach { ModelItem(it, it.id == current, favorites.contains(it.id), onSelect, onToggleFavorite) }
+                            }
+                            GroupLabel(if (models.isEmpty()) "No models cached — tap Refresh" else "All models")
+                            models.forEach { ModelItem(it, it.id == current, favorites.contains(it.id), onSelect, onToggleFavorite) }
                         }
-                        if (recentModels.isNotEmpty()) {
-                            GroupLabel("Recent")
-                            recentModels.forEach { ModelItem(it, it.id == current, favorites.contains(it.id), onSelect, onToggleFavorite) }
-                        }
-                        GroupLabel(if (models.isEmpty()) "No models cached — tap Refresh" else "All models")
-                        models.forEach { ModelItem(it, it.id == current, favorites.contains(it.id), onSelect, onToggleFavorite) }
                     }
 
                     Spacer(Modifier.height(14.dp))
@@ -351,7 +380,7 @@ private fun ModelItem(
     selected: Boolean,
     favorite: Boolean,
     onSelect: (String) -> Unit,
-    onToggleFavorite: (String) -> Unit
+    onToggleFavorite: ((String) -> Unit)?
 ) {
     val tokens = Aura.tokens
     val rowInteraction = remember { MutableInteractionSource() }
@@ -371,15 +400,20 @@ private fun ModelItem(
             BasicText(model.name, style = AuraType.body.copy(color = tokens.colors.textPrimary))
             BasicText(model.id, style = AuraType.label.copy(color = tokens.colors.textSecondary))
         }
-        Box(
-            Modifier
-                .size(34.dp)
-                .clip(RoundedCornerShape(tokens.radii.pill))
-                .auraPress(pinInteraction)
-                .clickable(pinInteraction, indication = null, onClick = { onToggleFavorite(model.id) }),
-            contentAlignment = Alignment.Center
-        ) {
-            AuraGlyph(Glyph.PIN, if (favorite) tokens.colors.accent else tokens.colors.textSecondary.copy(alpha = 0.4f), Modifier.size(16.dp))
+        // Favourite pin is text-model only; the STT trio omits it.
+        if (onToggleFavorite != null) {
+            Box(
+                Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(tokens.radii.pill))
+                    .auraPress(pinInteraction)
+                    .clickable(pinInteraction, indication = null, onClick = { onToggleFavorite(model.id) }),
+                contentAlignment = Alignment.Center
+            ) {
+                AuraGlyph(Glyph.PIN, if (favorite) tokens.colors.accent else tokens.colors.textSecondary.copy(alpha = 0.4f), Modifier.size(16.dp))
+            }
+        } else if (selected) {
+            AuraGlyph(Glyph.CHECK, tokens.colors.accent, Modifier.size(18.dp))
         }
     }
 }

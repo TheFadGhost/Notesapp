@@ -32,7 +32,17 @@ class AiPreferences @Inject constructor(
     private val autoCleanTranscriptKey = booleanPreferencesKey("auto_clean_transcript")
 
     val textModel: Flow<String> = context.aiSettingsStore.data.map { it[textModelKey] ?: DEFAULT_TEXT_MODEL }
-    val sttModel: Flow<String> = context.aiSettingsStore.data.map { it[sttModelKey] ?: DEFAULT_STT_MODEL }
+
+    /**
+     * Selected STT model. The transcription IDs OpenRouter actually accepts are a fixed
+     * hardcoded trio ([STT_MODELS]) that do NOT appear in `/models`; the old default
+     * (`qwen/qwen3-asr-flash-*`) no longer exists. Any stored value outside the trio —
+     * the dead qwen id, a stale free-text pick — is transparently healed to
+     * [DEFAULT_STT_MODEL] here on read, so existing installs recover with no user action.
+     */
+    val sttModel: Flow<String> = context.aiSettingsStore.data.map { prefs ->
+        prefs[sttModelKey]?.takeIf { it in STT_MODELS } ?: DEFAULT_STT_MODEL
+    }
     val favorites: Flow<Set<String>> = context.aiSettingsStore.data.map { it[favoritesKey] ?: emptySet() }
     val recents: Flow<List<String>> = context.aiSettingsStore.data.map { p ->
         p[recentsKey]?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()
@@ -52,7 +62,10 @@ class AiPreferences @Inject constructor(
     }
 
     suspend fun setSttModel(id: String) {
-        context.aiSettingsStore.edit { it[sttModelKey] = id.trim() }
+        // Only ever persist a supported transcription id; anything else falls back to the
+        // default so the stored value can never drift back into an unusable state.
+        val safe = id.trim().takeIf { it in STT_MODELS } ?: DEFAULT_STT_MODEL
+        context.aiSettingsStore.edit { it[sttModelKey] = safe }
     }
 
     suspend fun toggleFavorite(id: String) {
@@ -82,7 +95,21 @@ class AiPreferences @Inject constructor(
 
     companion object {
         const val DEFAULT_TEXT_MODEL = "deepseek/deepseek-v4-flash"
-        const val DEFAULT_STT_MODEL = "qwen/qwen3-asr-flash-2026-02-10"
+
+        /** Cheapest working transcription model (verified live on `/audio/transcriptions`). */
+        const val DEFAULT_STT_MODEL = "openai/gpt-4o-mini-transcribe"
+
+        /**
+         * The exact transcription models OpenRouter's multipart STT endpoint accepts today.
+         * These IDs are NOT returned by `/models`, so the STT picker offers this fixed list
+         * (no free-text, no /models filtering). Order = cheapest → most accurate.
+         */
+        val STT_MODELS = listOf(
+            "openai/gpt-4o-mini-transcribe",
+            "openai/gpt-4o-transcribe",
+            "openai/whisper-1"
+        )
+
         private const val MAX_RECENTS = 8
     }
 }
