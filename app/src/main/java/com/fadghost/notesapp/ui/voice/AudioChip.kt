@@ -71,13 +71,15 @@ fun AudioChipOverlay(
     attachments: List<AudioAttachment>,
     layout: TextLayoutResult?,
     textLength: Int,
+    mapOffset: (Int) -> Int = { it },
     onOpen: (AudioAttachment) -> Unit
 ) {
     val layoutResult = layout ?: return
     val density = LocalDensity.current
     attachments.forEach { att ->
         val offset = att.transcriptStart.coerceIn(0, textLength)
-        val rect = runCatching { layoutResult.getBoundingBox(offset) }.getOrNull() ?: return@forEach
+        // Map into the transformed layout so attachment chips ahead don't shift the anchor.
+        val rect = runCatching { layoutResult.getBoundingBox(mapOffset(offset)) }.getOrNull() ?: return@forEach
         with(density) {
             Box(
                 Modifier.offset(

@@ -116,6 +116,7 @@ fun EditorScreen(
     // Attachments (M-A): chips in the body, an ingest menu, tap popover, undoable remove.
     val attachmentsById by attachViewModel.byId.collectAsStateWithLifecycle()
     var showAttachMenu by remember { mutableStateOf(false) }
+    var openAttachment by remember { mutableStateOf<com.fadghost.notesapp.data.db.entity.Attachment?>(null) }
 
     LaunchedEffect(noteId) { viewModel.open(noteId, restoreDraft) }
     LaunchedEffect(state.noteId) { audioViewModel.bind(state.noteId) }
@@ -354,14 +355,24 @@ fun EditorScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            // Body — live-styled markdown with tappable checkboxes + smart lists.
+            // Body — live-styled markdown, tappable checkboxes, smart lists, and inline
+            // attachment bubble chips (M-A). The chip transform replaces [[att:id]] with
+            // the file name, so overlays map source offsets through displayBody.mapOffset.
             Box {
-                val transformation = remember(tokens) {
-                    MarkdownVisualTransformation(
+                val displayBody = remember(bodyValue.text, attachmentsById, tokens) {
+                    com.fadghost.notesapp.ui.attach.AttachmentBodyBuilder.build(
+                        source = bodyValue.text,
+                        attachments = attachmentsById,
                         textColor = tokens.colors.textPrimary,
                         markerColor = tokens.colors.textSecondary,
-                        accent = tokens.colors.accent
+                        accent = tokens.colors.accent,
+                        linkBlue = tokens.colors.linkBlue,
+                        chipSurface = tokens.colors.textPrimary.copy(alpha = 0.06f),
+                        missing = tokens.colors.danger
                     )
+                }
+                val transformation = remember(displayBody) {
+                    androidx.compose.ui.text.input.VisualTransformation { displayBody.transformed }
                 }
                 BasicTextField(
                     value = bodyValue,
@@ -402,6 +413,7 @@ fun EditorScreen(
                 CheckboxOverlay(
                     text = bodyValue.text,
                     layout = bodyLayout,
+                    mapOffset = displayBody::mapOffset,
                     onToggle = { offset ->
                         MarkdownEdits.toggleCheckboxAt(bodyValue.text, offset)?.let { toggled ->
                             applyBody(
@@ -417,7 +429,14 @@ fun EditorScreen(
                     attachments = audioChips,
                     layout = bodyLayout,
                     textLength = bodyValue.text.length,
+                    mapOffset = displayBody::mapOffset,
                     onOpen = { openPlayer = it }
+                )
+                // Inline attachment bubble chips (M-A): glyph + tap → popover.
+                com.fadghost.notesapp.ui.attach.AttachmentChipOverlay(
+                    chips = displayBody.chips,
+                    layout = bodyLayout,
+                    onOpen = { id -> openAttachment = attachmentsById[id] }
                 )
             }
         }
@@ -669,11 +688,12 @@ private fun Modifier.heightForBody(): Modifier =
 private fun CheckboxOverlay(
     text: String,
     layout: TextLayoutResult?,
+    mapOffset: (Int) -> Int = { it },
     onToggle: (Int) -> Unit
 ) {
     val layoutResult = layout ?: return
     val density = LocalDensity.current
-    val rects = remember(text, layoutResult) { checkboxRects(text, layoutResult) }
+    val rects = remember(text, layoutResult, mapOffset) { checkboxRects(text, layoutResult, mapOffset) }
     rects.forEach { (offset, rect) ->
         with(density) {
             // P2-1: expand the marker hit-box to a centred 48dp target.
@@ -693,7 +713,11 @@ private fun CheckboxOverlay(
 }
 
 /** Bounding rects of the `[ ]` / `[x]` markers, one per checklist line. */
-private fun checkboxRects(text: String, layout: TextLayoutResult): List<Pair<Int, Rect>> {
+private fun checkboxRects(
+    text: String,
+    layout: TextLayoutResult,
+    mapOffset: (Int) -> Int = { it }
+): List<Pair<Int, Rect>> {
     val out = ArrayList<Pair<Int, Rect>>()
     var lineStart = 0
     val checklist = Regex("""^\s*[-*+] \[[ xX]] """)
@@ -706,8 +730,10 @@ private fun checkboxRects(text: String, layout: TextLayoutResult): List<Pair<Int
                 val a = (lineStart + open).coerceIn(0, text.length)
                 val b = (lineStart + close).coerceIn(0, text.length)
                 runCatching {
-                    val ra = layout.getBoundingBox(a)
-                    val rb = layout.getBoundingBox(b)
+                    // Map source offsets into the transformed layout (attachment chips
+                    // change lengths ahead of a checkbox on the same/earlier lines).
+                    val ra = layout.getBoundingBox(mapOffset(a))
+                    val rb = layout.getBoundingBox(mapOffset(b))
                     out += (lineStart) to Rect(ra.left, ra.top, rb.right, rb.bottom)
                 }
             }

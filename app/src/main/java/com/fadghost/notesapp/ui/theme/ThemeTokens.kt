@@ -21,7 +21,13 @@ data class ThemeColors(
     val accent: Color,
     val danger: Color,
     /** Hairline stroke used on translucent surfaces. */
-    val outline: Color
+    val outline: Color,
+    /**
+     * Link/citation blue (M-A). Used for attachment-chip filenames (and, later, memory
+     * citation chips) — deliberately BLUE, not the terracotta accent. Per-theme so it
+     * clears 4.5:1 on that theme's background (V3-DELIGHT §7.7 a11y floor).
+     */
+    val linkBlue: Color
 )
 
 @Immutable
@@ -100,7 +106,8 @@ val LightTokens = ThemeTokens(
         textSecondary = Color(0xFF6A6152),
         accent = Color(0xFFAD5430),
         danger = Color(0xFFB3261E),
-        outline = Color(0x1A23272E)
+        outline = Color(0x1A23272E),
+        linkBlue = Color(0xFF175CB0) // 5.85:1 on cream #F7F1E6
     ),
     elevation = ThemeElevationAlphas(
         translucentTint = 0.72f,
@@ -129,7 +136,8 @@ val DarkTokens = ThemeTokens(
         textSecondary = Color(0xFFADA491),
         accent = Color(0xFFD2764E),
         danger = Color(0xFFEF6B60),
-        outline = Color(0x22F2E7D5)
+        outline = Color(0x22F2E7D5),
+        linkBlue = Color(0xFF7FB0FF) // 7.9:1 on charcoal #1C1A17
     ),
     elevation = ThemeElevationAlphas(
         translucentTint = 0.60f,
@@ -159,7 +167,8 @@ val AmoledTokens = ThemeTokens(
         textSecondary = Color(0xFF9E968A),
         accent = Color(0xFFD67C52),
         danger = Color(0xFFF0655A),
-        outline = Color(0x2EF2E7D5)
+        outline = Color(0x2EF2E7D5),
+        linkBlue = Color(0xFF74ADFF) // 9.16:1 on true black #000000
     ),
     elevation = ThemeElevationAlphas(
         translucentTint = 0.66f,
@@ -187,7 +196,8 @@ val GreyTokens = ThemeTokens(
         textSecondary = Color(0xFFB4AB9A),
         accent = Color(0xFFD2764E),
         danger = Color(0xFFEE6F62),
-        outline = Color(0x24F2E7D5)
+        outline = Color(0x24F2E7D5),
+        linkBlue = Color(0xFF82B4FF) // 5.49:1 on graphite #3C3833
     ),
     elevation = ThemeElevationAlphas(
         translucentTint = 0.62f,
