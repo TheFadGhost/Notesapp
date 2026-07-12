@@ -280,6 +280,11 @@ class EditorAiViewModel @Inject constructor(
         is OpenRouterError.ModelUnavailable -> "That model is unavailable. Pick another in Settings."
         is OpenRouterError.Network -> "AI unavailable — your note is untouched."
         is OpenRouterError.Parse -> "Could not read the model's reply. Try again."
+        // Surface the real OpenRouter message (e.g. a rejected request param) instead of
+        // masking every failure as generic — the user can see what actually went wrong.
+        is OpenRouterError.Unknown -> e.detail?.takeIf { it.isNotBlank() }
+            ?.let { "AI error: ${it.take(160)}" }
+            ?: "Something went wrong. Your note is untouched."
         else -> "Something went wrong. Your note is untouched."
     }
 

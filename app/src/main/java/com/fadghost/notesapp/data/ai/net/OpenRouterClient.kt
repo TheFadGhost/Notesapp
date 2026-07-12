@@ -21,6 +21,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * OpenRouter API client (PLAN.md §5). Two call styles:
@@ -279,18 +282,47 @@ class OpenRouterClient(
     private fun isRetryable(status: Int): Boolean = status == 429 || status in 500..599
 
     private suspend fun mapError(resp: HttpResponse, model: String?): OpenRouterError {
-        val detail = runCatching { resp.bodyAsText().take(300) }.getOrNull()
+        val raw = runCatching { resp.bodyAsText() }.getOrNull()
+        val apiMessage = raw?.let { apiErrorMessage(it) }
+        val detail = apiMessage ?: raw?.take(300)
         return when (resp.status.value) {
             401, 403 -> OpenRouterError.InvalidKey
             402 -> OpenRouterError.NoCredit
             429 -> OpenRouterError.RateLimited(
                 resp.headersSafe("Retry-After")?.toLongOrNull()
             )
-            400, 404 -> if (model != null) OpenRouterError.ModelUnavailable(model)
+            // Only a genuine "this model does not exist" maps to ModelUnavailable. Every
+            // other 400/404 (bad param, malformed body, unsupported option) now surfaces
+            // its real OpenRouter message so the user isn't wrongly told to switch models
+            // — the Bug 1 mis-mapping that turned a `usage:{}` 400 into "unavailable".
+            400, 404 -> if (model != null && looksLikeUnknownModel(apiMessage, resp.status.value))
+                            OpenRouterError.ModelUnavailable(model)
                         else OpenRouterError.Unknown(resp.status.value, detail)
             in 500..599 -> OpenRouterError.Unknown(resp.status.value, detail)
             else -> OpenRouterError.Unknown(resp.status.value, detail)
         }
+    }
+
+    /** Extract `error.message` from an OpenRouter error body, if the body carries one. */
+    private fun apiErrorMessage(body: String): String? = runCatching {
+        json.parseToJsonElement(body).jsonObject["error"]
+            ?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
+            ?.takeIf { it.isNotBlank() }
+    }.getOrNull()
+
+    /**
+     * Whether a 400/404 means the model id itself is unknown (vs. a valid model that
+     * rejected some request param). A 404 on chat/completions is by definition an
+     * unknown model/endpoint; a 400 only counts when the message names the model as
+     * missing. Anything else keeps its real message via [OpenRouterError.Unknown].
+     */
+    private fun looksLikeUnknownModel(message: String?, status: Int): Boolean {
+        if (status == 404) return true
+        val m = message?.lowercase() ?: return false
+        return "not a valid model" in m || "is not a valid model id" in m ||
+            "no endpoints found" in m || "no allowed providers" in m ||
+            ("model" in m && ("not found" in m || "does not exist" in m ||
+                "no such" in m || "unknown model" in m))
     }
 
     private fun HttpResponse.headersSafe(name: String): String? = headers[name]

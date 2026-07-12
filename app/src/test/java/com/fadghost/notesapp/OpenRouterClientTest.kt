@@ -24,7 +24,9 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class OpenRouterClientTest {
 
-    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false; isLenient = true }
+    // Mirror the production Json (AiModule.provideJson): encodeDefaults=true is what keeps
+    // default-valued request flags (usage.include, reasoning.exclude) on the wire.
+    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false; isLenient = true; encodeDefaults = true }
     private val jsonHeaders = headersOf(HttpHeaders.ContentType, "application/json")
 
     private fun client(
@@ -58,6 +60,29 @@ class OpenRouterClientTest {
         val completed = events.filterIsInstance<OpenRouterClient.Stream.Completed>().single()
         assertEquals(0.0004, completed.usage!!.cost!!, 1e-9)
         assertEquals(12, completed.usage!!.totalTokens)
+    }
+
+    @Test fun streamingRequestBodyKeepsUsageAndReasoningFlags() = runTest {
+        // Regression for Bug 1: encodeDefaults=false dropped `include`/`exclude`, so the
+        // wire carried `"usage":{}` — which OpenRouter 400-rejects. Both flags must ship.
+        var seenBody: String? = null
+        val c = client { req ->
+            seenBody = (req.body as io.ktor.http.content.TextContent).text
+            respond(ByteReadChannel("data: [DONE]\n\n"), HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "text/event-stream"))
+        }
+        c.streamCleanup("key", req().copy(reasoning = ReasoningRequest(exclude = true))).toList()
+        assertTrue("usage.include must be on the wire: $seenBody", seenBody!!.contains("\"usage\":{\"include\":true}"))
+        assertTrue("reasoning.exclude must be on the wire: $seenBody", seenBody!!.contains("\"exclude\":true"))
+    }
+
+    @Test fun badParam400SurfacesRealMessageNotModelUnavailable() = runTest {
+        // A 400 that is NOT about the model must keep its real message (Unknown), not be
+        // mis-mapped to ModelUnavailable (Bug 1's mapError conflation).
+        val body = """{"error":{"message":"usage.include: Invalid input: expected boolean, received undefined","code":400}}"""
+        val c = client { respond(body, HttpStatusCode.BadRequest, jsonHeaders) }
+        val err = runCatching { c.complete("k", req()) }.exceptionOrNull()
+        assertTrue("expected Unknown, got $err", err is OpenRouterError.Unknown)
+        assertTrue((err as OpenRouterError.Unknown).detail!!.contains("usage.include"))
     }
 
     @Test fun invalidKeyMapsFrom401() = runTest {
