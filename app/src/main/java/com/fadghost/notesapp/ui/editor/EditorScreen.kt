@@ -41,6 +41,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
@@ -102,8 +103,10 @@ fun EditorScreen(
     val bodyFocus = remember { FocusRequester() }
 
     val hasKey by aiViewModel.hasKey.collectAsStateWithLifecycle()
+    val memoryEnabled by aiViewModel.memoryEnabled.collectAsStateWithLifecycle()
     val cleanupState by aiViewModel.cleanup.collectAsStateWithLifecycle()
     val extractState by aiViewModel.extract.collectAsStateWithLifecycle()
+    val memoryState by aiViewModel.memory.collectAsStateWithLifecycle()
     val aiSnackbar by aiViewModel.snackbar.collectAsStateWithLifecycle()
     val autoCleanTranscript by aiViewModel.autoCleanTranscript.collectAsStateWithLifecycle()
     val queuedResult by remember(state.noteId) { aiViewModel.pendingQueuedCleanup(state.noteId) }.collectAsStateWithLifecycle()
@@ -134,6 +137,9 @@ fun EditorScreen(
     var showFolderPicker by remember { mutableStateOf(false) }
     var showTagPicker by remember { mutableStateOf(false) }
     var showNoKey by remember { mutableStateOf(false) }
+    // The AI sparkle menu (§1.9): one button opens the 4-row panel anchored to its bounds.
+    var showAiMenu by remember { mutableStateOf(false) }
+    var aiMenuAnchor by remember { mutableStateOf(Rect.Zero) }
     var bodyLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
     // Y (root px) of the bottom of the title/header, so the first-run coach card can anchor
     // strictly BELOW it and never cover the title or top bar (bug 6).
@@ -174,6 +180,18 @@ fun EditorScreen(
 
     fun onExtract() {
         if (hasKey) { focus.clearFocus(); aiViewModel.startExtract(state.noteId, bodyValue.text) }
+        else showNoKey = true
+    }
+
+    // Rewrite (P4) — full restructure into the before/after sheet.
+    fun onRewrite() {
+        if (hasKey) { focus.clearFocus(); aiViewModel.startRewrite(state.noteId, bodyValue.text) }
+        else showNoKey = true
+    }
+
+    // Add to memory (P1) — extract durable entries, confirm cards before any write.
+    fun onAddMemory() {
+        if (hasKey) { focus.clearFocus(); aiViewModel.startAddToMemory(state.noteId, bodyValue.text) }
         else showNoKey = true
     }
 
@@ -327,8 +345,12 @@ fun EditorScreen(
                         Modifier.weight(1f)
                     }
                     Row(clusterMod, verticalAlignment = Alignment.CenterVertically) {
-                        IconAction(Glyph.SPARKLE, tint = tokens.colors.accent) { onCleanup() }
-                        IconAction(Glyph.CALENDAR, tint = tokens.colors.accent) { onExtract() }
+                        // Single AI sparkle → the 4-row anchored panel (V3-PROMPTS §1.9).
+                        Box(Modifier.onGloballyPositioned { aiMenuAnchor = it.boundsInRoot() }) {
+                            IconAction(Glyph.SPARKLE, tint = tokens.colors.accent) {
+                                focus.clearFocus(); showAiMenu = true
+                            }
+                        }
                         MicAction(tint = tokens.colors.accent) { onVoice() }
                         IconAction(Glyph.PAPERCLIP, tint = tokens.colors.accent) { onAttach() }
                         // Push the chips to the right of the cluster when there's room; use a
@@ -568,10 +590,34 @@ fun EditorScreen(
             onDismiss = aiViewModel::dismissExtract
         )
 
-        // Batch "Undo all" snackbar for accepted actions.
+        // ✨ AI sparkle menu — Clean up / Rewrite / Extract / Add to memory (§1.9).
+        com.fadghost.notesapp.ui.ai.EditorAiMenu(
+            visible = showAiMenu,
+            anchor = aiMenuAnchor,
+            memoryEnabled = memoryEnabled,
+            onCleanup = { showAiMenu = false; onCleanup() },
+            onRewrite = { showAiMenu = false; onRewrite() },
+            onExtract = { showAiMenu = false; onExtract() },
+            onAddMemory = { showAiMenu = false; onAddMemory() },
+            onDismiss = { showAiMenu = false }
+        )
+
+        // 📖 Add-to-memory confirm cards (P1) — nothing is written until "Keep".
+        com.fadghost.notesapp.ui.ai.MemorySheet(
+            state = memoryState,
+            onToggle = aiViewModel::toggleMemoryCard,
+            onRemove = aiViewModel::removeMemoryCard,
+            onBeginEdit = aiViewModel::beginMemoryEdit,
+            onCancelEdit = aiViewModel::cancelMemoryEdit,
+            onApplyEdit = aiViewModel::applyMemoryEdit,
+            onKeep = aiViewModel::keepMemory,
+            onDismiss = aiViewModel::dismissMemory
+        )
+
+        // Universal Undo snackbar — serves both extract batch-accept and memory saves.
         com.fadghost.notesapp.ui.components.AuraUndoSnackbar(
             message = aiSnackbar,
-            onAction = aiViewModel::undoAll,
+            onAction = aiViewModel::performUndo,
             onDismiss = aiViewModel::dismissSnackbar,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -921,9 +967,7 @@ private fun EditorCoachTip(
         ) {
         BasicText("QUICK TOUR", style = AuraType.labelSm.copy(color = tokens.colors.textSecondary))
         Spacer(Modifier.height(10.dp))
-        CoachRow(Glyph.SPARKLE, "Clean-up", "Tidy grammar & formatting")
-        Spacer(Modifier.height(8.dp))
-        CoachRow(Glyph.CALENDAR, "Extract", "Pull out reminders & dates")
+        CoachRow(Glyph.SPARKLE, "AI", "Clean up, rewrite, extract, remember")
         Spacer(Modifier.height(8.dp))
         CoachRow(Glyph.MIC, "Voice", "Ramble; we transcribe it")
         Spacer(Modifier.height(12.dp))

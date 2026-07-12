@@ -100,10 +100,14 @@ fun CleanupSheet(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         AuraGlyph(Glyph.SPARKLE, tokens.colors.accent, Modifier.size(22.dp))
                         Spacer(Modifier.size(10.dp))
-                        BasicText("Clean up", style = AuraType.title.copy(color = tokens.colors.textPrimary))
+                        BasicText(state.title, style = AuraType.title.copy(color = tokens.colors.textPrimary))
                         Spacer(Modifier.weight(1f))
                         if (state.streaming) {
-                            BasicText("streaming…", style = AuraType.label.copy(color = tokens.colors.textSecondary))
+                            // Folio's rotating thinking line (V3-DELIGHT §3A), not "streaming…".
+                            BasicText(
+                                state.thinking.ifBlank { "Working…" },
+                                style = AuraType.label.copy(color = tokens.colors.textSecondary)
+                            )
                         }
                     }
                     Spacer(Modifier.size(14.dp))

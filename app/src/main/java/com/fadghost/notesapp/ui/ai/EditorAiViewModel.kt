@@ -10,8 +10,12 @@ import com.fadghost.notesapp.data.ai.net.OpenRouterClient
 import com.fadghost.notesapp.data.ai.net.OpenRouterError
 import com.fadghost.notesapp.data.ai.parse.ActionType
 import com.fadghost.notesapp.data.ai.parse.ExtractOutcome
+import com.fadghost.notesapp.data.ai.parse.MemoryExtractOutcome
 import com.fadghost.notesapp.data.ai.parse.ProposedAction
+import com.fadghost.notesapp.data.ai.parse.ProposedMemoryEntry
 import com.fadghost.notesapp.data.ai.work.AiQueueWorker
+import com.fadghost.notesapp.data.memory.MemoryFormat
+import com.fadghost.notesapp.data.memory.MemoryRepository
 import com.fadghost.notesapp.ui.components.UndoMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -27,6 +31,9 @@ import javax.inject.Inject
 /** Which segment of the before/after sheet is shown. */
 enum class BeforeAfter { BEFORE, AFTER }
 
+/** The before/after sheet serves both the light Clean-up and the full Rewrite (P4). */
+enum class AiRewriteMode { CLEANUP, REWRITE }
+
 data class CleanupState(
     val active: Boolean = false,
     val streaming: Boolean = false,
@@ -35,8 +42,34 @@ data class CleanupState(
     val before: String = "",
     val after: String = "",
     val error: String? = null,
-    val segment: BeforeAfter = BeforeAfter.AFTER
+    val segment: BeforeAfter = BeforeAfter.AFTER,
+    val mode: AiRewriteMode = AiRewriteMode.CLEANUP,
+    /** Rotating Folio thinking line shown while streaming (V3-DELIGHT §3A). */
+    val thinking: String = ""
+) {
+    val title: String get() = if (mode == AiRewriteMode.REWRITE) "Rewrite" else "Clean up"
+}
+
+/** A single "Add to memory" confirm card (V3-PROMPTS.md §1.2 — confirm before any write). */
+data class MemoryCard(
+    val id: Long,
+    val entry: ProposedMemoryEntry,
+    val accepted: Boolean = true,
+    val editing: Boolean = false
 )
+
+data class MemoryState(
+    val active: Boolean = false,
+    val loading: Boolean = false,
+    val thinking: String = "",
+    val cards: List<MemoryCard> = emptyList(),
+    val skippedReason: String? = null,
+    val rawError: String? = null,
+    val error: String? = null,
+    val savedCount: Int = 0
+) {
+    val acceptedCount: Int get() = cards.count { it.accepted }
+}
 
 /** A single extracted-action confirmation card. */
 data class ExtractCard(
@@ -66,12 +99,17 @@ data class ExtractState(
 @HiltViewModel
 class EditorAiViewModel @Inject constructor(
     private val repo: AiRepository,
+    private val memoryRepo: MemoryRepository,
     private val resultStore: AiResultStore,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
     val hasKey: StateFlow<Boolean> =
         repo.hasKey.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    /** Whether the memory feature is enabled (Settings toggle) — gates "Add to memory". */
+    val memoryEnabled: StateFlow<Boolean> =
+        memoryRepo.enabled.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
     /** Whether transcripts should auto-run Clean-up (PLAN.md §5 voice toggle). */
     val autoCleanTranscript: StateFlow<Boolean> =
@@ -83,14 +121,25 @@ class EditorAiViewModel @Inject constructor(
     private val _extract = MutableStateFlow(ExtractState())
     val extract: StateFlow<ExtractState> = _extract.asStateFlow()
 
+    private val _memory = MutableStateFlow(MemoryState())
+    val memory: StateFlow<MemoryState> = _memory.asStateFlow()
+
     private val _snackbar = MutableStateFlow<UndoMessage?>(null)
     val snackbar: StateFlow<UndoMessage?> = _snackbar.asStateFlow()
 
     private var cleanupJob: Job? = null
+    private var memoryJob: Job? = null
     private var cardSeq = 0L
     private var noteIdForRun = 0L
     private var textForRun = ""
     private val insertedRows = ArrayList<InsertedRow>()
+    /** The action the current Undo snackbar performs (extract batch OR memory save). */
+    private var undoAction: (() -> Unit)? = null
+    private var lastMemoryWrite: MemoryRepository.WriteResult? = null
+
+    private val cleanupThinking = listOf("Tidying…", "Straightening up…", "Trimming filler…")
+    private val rewriteThinking = listOf("Reading it through…", "Finding the shape…", "Setting it in order…")
+    private val memoryThinking = listOf("Noting what matters…", "Marking the durable bits…")
 
     /** Observe a queued Clean-up result that finished while the editor was closed/offline. */
     fun pendingQueuedCleanup(noteId: Long): StateFlow<String?> =
@@ -103,7 +152,7 @@ class EditorAiViewModel @Inject constructor(
         if (text.isBlank()) return
         noteIdForRun = noteId
         textForRun = text
-        _cleanup.value = CleanupState(active = true, before = text, segment = BeforeAfter.AFTER)
+        _cleanup.value = CleanupState(active = true, before = text, segment = BeforeAfter.AFTER, mode = AiRewriteMode.CLEANUP)
         if (!repo.isOnline()) {
             enqueueOffline(noteId)
             return
@@ -111,12 +160,42 @@ class EditorAiViewModel @Inject constructor(
         runCleanup()
     }
 
+    /** Rewrite (P4, V3-PROMPTS.md §1.5) — full restructure streamed into the SAME sheet. */
+    fun startRewrite(noteId: Long, text: String) {
+        if (text.isBlank()) return
+        noteIdForRun = noteId
+        textForRun = text
+        _cleanup.value = CleanupState(active = true, before = text, segment = BeforeAfter.AFTER, mode = AiRewriteMode.REWRITE)
+        if (!repo.isOnline()) {
+            // Rewrite has no offline queue (unlike Clean-up) — be honest, not silent.
+            _cleanup.value = _cleanup.value.copy(error = "You're offline. Rewrite needs a connection — your note's untouched.")
+            return
+        }
+        runRewrite()
+    }
+
     private fun runCleanup() {
-        _cleanup.value = _cleanup.value.copy(streaming = true, done = false, after = "", error = null, queued = false)
+        _cleanup.value = _cleanup.value.copy(
+            streaming = true, done = false, after = "", error = null, queued = false,
+            thinking = cleanupThinking.random()
+        )
+        streamInto(repo.cleanupStream(textForRun, noteIdForRun.takeIf { it > 0 }))
+    }
+
+    private fun runRewrite() {
+        _cleanup.value = _cleanup.value.copy(
+            streaming = true, done = false, after = "", error = null, queued = false,
+            thinking = rewriteThinking.random()
+        )
+        streamInto(repo.rewriteStream(textForRun, noteIdForRun.takeIf { it > 0 }, System.currentTimeMillis()))
+    }
+
+    /** Shared collector for Clean-up + Rewrite streams into the before/after sheet. */
+    private fun streamInto(flow: kotlinx.coroutines.flow.Flow<OpenRouterClient.Stream>) {
         cleanupJob?.cancel()
         cleanupJob = viewModelScope.launch {
             try {
-                repo.cleanupStream(textForRun, noteIdForRun.takeIf { it > 0 }).collect { ev ->
+                flow.collect { ev ->
                     when (ev) {
                         is OpenRouterClient.Stream.Delta ->
                             _cleanup.value = _cleanup.value.copy(after = _cleanup.value.after + ev.text)
@@ -146,6 +225,14 @@ class EditorAiViewModel @Inject constructor(
     }
 
     fun regenerateCleanup() {
+        if (_cleanup.value.mode == AiRewriteMode.REWRITE) {
+            if (!repo.isOnline()) {
+                _cleanup.value = _cleanup.value.copy(error = "You're offline. Rewrite needs a connection — your note's untouched.")
+                return
+            }
+            runRewrite()
+            return
+        }
         if (!repo.isOnline()) { enqueueOffline(noteIdForRun); return }
         runCleanup()
     }
@@ -251,20 +338,127 @@ class EditorAiViewModel @Inject constructor(
 
     private fun offerUndoAll() {
         val n = insertedRows.count()
-        if (n > 0) _snackbar.value = UndoMessage("Added $n to your calendar", actionLabel = "Undo all")
+        if (n > 0) {
+            undoAction = { undoInsertedActions() }
+            _snackbar.value = UndoMessage("Added $n to your calendar", actionLabel = "Undo all")
+        }
     }
 
-    fun undoAll() {
+    private fun undoInsertedActions() {
         val rows = insertedRows.toList()
         insertedRows.clear()
-        _snackbar.value = null
         viewModelScope.launch { rows.forEach { repo.deleteInserted(it) } }
     }
 
-    fun dismissSnackbar() { _snackbar.value = null }
+    /** Snackbar action — runs whichever undo the current message registered. */
+    fun performUndo() {
+        val action = undoAction
+        undoAction = null
+        _snackbar.value = null
+        action?.invoke()
+    }
+
+    fun dismissSnackbar() { _snackbar.value = null; undoAction = null }
 
     fun dismissExtract() {
         _extract.value = ExtractState()
+    }
+
+    // --- Add to memory (P1, confirm-before-write) -------------------------------
+
+    /**
+     * Run P1 on the note text against the current index, then present the entries as
+     * confirm cards. NOTHING is written until the user taps Keep (V3-PROMPTS.md §1.2).
+     */
+    fun startAddToMemory(noteId: Long, text: String) {
+        if (text.isBlank()) return
+        _memory.value = MemoryState(active = true, loading = true, thinking = memoryThinking.random())
+        memoryJob?.cancel()
+        memoryJob = viewModelScope.launch {
+            try {
+                val index = memoryRepo.currentIndex()
+                when (val outcome = repo.extractMemory(text, index, noteId.takeIf { it > 0 }, System.currentTimeMillis())) {
+                    is MemoryExtractOutcome.Success -> _memory.value = MemoryState(
+                        active = true,
+                        cards = outcome.entries.map { MemoryCard(id = cardSeq++, entry = it) },
+                        skippedReason = if (outcome.entries.isEmpty()) outcome.skippedReason else null
+                    )
+                    is MemoryExtractOutcome.ParseFailure -> _memory.value = MemoryState(
+                        active = true, rawError = outcome.raw.take(600)
+                    )
+                }
+            } catch (e: Exception) {
+                _memory.value = MemoryState(active = true, error = friendly(e))
+            }
+        }
+    }
+
+    fun toggleMemoryCard(id: Long) = mutateMemoryCard(id) { it.copy(accepted = !it.accepted) }
+    fun removeMemoryCard(id: Long) {
+        _memory.value = _memory.value.copy(cards = _memory.value.cards.filterNot { it.id == id })
+    }
+    fun beginMemoryEdit(id: Long) = mutateMemoryCard(id) { it.copy(editing = true) }
+    fun cancelMemoryEdit(id: Long) = mutateMemoryCard(id) { it.copy(editing = false) }
+
+    fun applyMemoryEdit(id: Long, title: String, body: String) = mutateMemoryCard(id) { card ->
+        val m = card.entry.model
+        val newBody = MemoryFormat.clampBody(body).ifBlank { m.body }
+        card.copy(
+            editing = false,
+            entry = card.entry.copy(
+                model = m.copy(
+                    title = title.trim().ifBlank { m.title }.take(120),
+                    body = newBody,
+                    hook = MemoryFormat.clampHook(m.hook.ifBlank { newBody })
+                )
+            )
+        )
+    }
+
+    /** Write the accepted entries to the vault (files + mirror), then offer Undo + Folio copy. */
+    fun keepMemory() {
+        val accepted = _memory.value.cards.filter { it.accepted }.map { it.entry.model }
+        if (accepted.isEmpty()) { dismissMemory(); return }
+        viewModelScope.launch {
+            val result = runCatching { memoryRepo.writeEntries(accepted) }.getOrNull()
+            if (result == null) {
+                _memory.value = _memory.value.copy(error = "Couldn't keep those just now. Try again?")
+                return@launch
+            }
+            lastMemoryWrite = result
+            val total = memoryRepo.bumpSaveCount(accepted.size)
+            _memory.value = _memory.value.copy(cards = emptyList(), savedCount = accepted.size)
+            undoAction = { undoMemory() }
+            _snackbar.value = UndoMessage(memorySuccessLine(total, accepted.size), actionLabel = "Undo")
+        }
+    }
+
+    private fun undoMemory() {
+        val result = lastMemoryWrite ?: return
+        lastMemoryWrite = null
+        viewModelScope.launch { memoryRepo.undoWrite(result) }
+    }
+
+    /**
+     * Folio success copy (V3-DELIGHT §3B): the personified hero line only on the 1st/10th/
+     * 50th lifetime save (throttled HARD — repeated it is poison); otherwise a quiet "Kept."
+     */
+    private fun memorySuccessLine(total: Int, saved: Int): String {
+        val prev = total - saved
+        val hero = listOf(1, 10, 50).any { it in (prev + 1)..total }
+        return if (hero) "Folio remembers the more you keep."
+        else listOf("Kept.", "Noted.").random()
+    }
+
+    fun dismissMemory() {
+        memoryJob?.cancel()
+        _memory.value = MemoryState()
+    }
+
+    private fun mutateMemoryCard(id: Long, transform: (MemoryCard) -> MemoryCard) {
+        _memory.value = _memory.value.copy(
+            cards = _memory.value.cards.map { if (it.id == id) transform(it) else it }
+        )
     }
 
     private fun mutateCard(id: Long, transform: (ExtractCard) -> ExtractCard) {

@@ -57,13 +57,19 @@ class MemoryRepository @Inject constructor(
      */
     suspend fun writeEntries(models: List<MemoryEntryModel>): WriteResult = withContext(Dispatchers.IO) {
         val previous = models.associate { it.slug to MemoryVault.readEntry(filesDir, it.slug) }
-        MemoryVault.writeEntries(filesDir, models)
+        // Preserve the original `created` date when an entry is being updated (op:update);
+        // only `updated` moves forward. New slugs keep the model's created stamp.
+        val adjusted = models.map { m -> previous[m.slug]?.let { m.copy(created = it.created) } ?: m }
+        MemoryVault.writeEntries(filesDir, adjusted)
         db.withTransaction {
-            for (m in models) mirror(m)
+            for (m in adjusted) mirror(m)
         }
         prefs.setChecksum(MemoryVault.checksum(filesDir))
-        WriteResult(models.map { it.slug }, previous)
+        WriteResult(adjusted.map { it.slug }, previous)
     }
+
+    /** The current `index.md` text (fed to P1 for dedup routing). */
+    suspend fun currentIndex(): String = withContext(Dispatchers.IO) { MemoryVault.readIndex(filesDir) }
 
     /** Undo a [writeEntries]: restore each replaced model, or delete a slug that was new. */
     suspend fun undoWrite(result: WriteResult) = withContext(Dispatchers.IO) {
