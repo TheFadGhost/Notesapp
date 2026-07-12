@@ -73,8 +73,10 @@ class NotesRepository @Inject constructor(
      */
     suspend fun saveNote(note: Note): Long = withContext(Dispatchers.IO) {
         db.withTransaction {
-            val id = noteDao.upsert(note)
-            val realId = if (note.id == 0L) id else note.id
+            // For an existing note use UPDATE, never INSERT-OR-REPLACE: REPLACE deletes
+            // the row and re-inserts it, which fires the ON DELETE CASCADE and wipes the
+            // note's attachment / audio child rows on every autosave (M-A regression fix).
+            val realId = if (note.id == 0L) noteDao.upsert(note) else { noteDao.update(note); note.id }
             syncFts(realId, note.title, note.body)
             realId
         }

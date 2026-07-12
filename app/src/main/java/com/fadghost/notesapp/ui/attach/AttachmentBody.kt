@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -85,7 +86,9 @@ object AttachmentBodyBuilder {
                 val id = m.groupValues[1].toLongOrNull() ?: -1L
                 val att = attachments[id]
                 val name = att?.displayName ?: "missing attachment"
-                val label = "  $name" // 2 spaces reserve the glyph slot
+                // Leading ideographic space (~1em) + thin space reserve room for the
+                // overlaid glyph so it never covers the first character of the name.
+                val label = "　 $name"
                 val ts = sb.length
                 for (k in i..m.range.last) fwd[k] = ts
                 sb.append(label)
@@ -168,7 +171,9 @@ fun AttachmentChipOverlay(
                 AuraGlyph(
                     if (chip.isImage) Glyph.IMAGE else Glyph.PAPERCLIP,
                     glyphColor,
-                    Modifier.size(heightDp.coerceAtMost(18.dp))
+                    Modifier
+                        .padding(start = 1.dp)
+                        .size(heightDp.coerceAtMost(16.dp))
                 )
             }
         }
