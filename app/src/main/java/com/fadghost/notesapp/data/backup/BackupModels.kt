@@ -70,7 +70,9 @@ data class BackupManifest(
     val folderCount: Int,
     val tagCount: Int,
     val entries: List<ManifestEntry>,
-    val attachmentCount: Int = 0
+    val attachmentCount: Int = 0,
+    /** Number of memory-vault files (index.md + per-entry markdown) in the ZIP (M-B). */
+    val memoryFileCount: Int = 0
 )
 
 /** Result of reading a backup ZIP without committing it — drives the import preview. */
@@ -80,7 +82,9 @@ data class BackupPreview(
     /** Paths whose recomputed checksum did not match the manifest. Empty == intact. */
     val checksumMismatches: List<String>,
     /** ZIP-relative path -> file bytes for attachments, applied on restore. */
-    val attachmentFiles: Map<String, ByteArray> = emptyMap()
+    val attachmentFiles: Map<String, ByteArray> = emptyMap(),
+    /** ZIP-relative path (`memory/...`) -> file bytes for the memory vault (M-B). */
+    val memoryFiles: Map<String, ByteArray> = emptyMap()
 ) {
     val isIntact: Boolean get() = checksumMismatches.isEmpty()
 }

@@ -20,6 +20,7 @@ object BackupSerializer {
     private const val MANIFEST_PATH = "manifest.json"
     private const val NOTES_DIR = "notes/"
     private const val ATTACHMENTS_DIR = "attachments/"
+    private const val MEMORY_DIR = "memory/"
 
     private val json = Json {
         prettyPrint = true
@@ -36,7 +37,8 @@ object BackupSerializer {
         data: BackupData,
         out: OutputStream,
         now: Long,
-        attachmentBytes: Map<String, ByteArray> = emptyMap()
+        attachmentBytes: Map<String, ByteArray> = emptyMap(),
+        memoryBytes: Map<String, ByteArray> = emptyMap()
     ) {
         val entries = mutableListOf<ManifestEntry>()
         ZipOutputStream(out).use { zip ->
@@ -53,6 +55,11 @@ object BackupSerializer {
                 writeEntry(zip, att.zipPath, bytes)
                 entries += ManifestEntry(att.zipPath, sha256(bytes), bytes.size.toLong())
             }
+            // Memory vault files (M-B) — the markdown vault verbatim under memory/.
+            for ((path, bytes) in memoryBytes) {
+                writeEntry(zip, path, bytes)
+                entries += ManifestEntry(path, sha256(bytes), bytes.size.toLong())
+            }
             // Full structured metadata (source of truth for restore).
             val metaBytes = json.encodeToString(BackupData.serializer(), data).toByteArray(Charsets.UTF_8)
             writeEntry(zip, META_PATH, metaBytes)
@@ -65,7 +72,8 @@ object BackupSerializer {
                 folderCount = data.folders.size,
                 tagCount = data.tags.size,
                 entries = entries,
-                attachmentCount = data.attachments.size
+                attachmentCount = data.attachments.size,
+                memoryFileCount = memoryBytes.size
             )
             val manifestBytes = json.encodeToString(BackupManifest.serializer(), manifest)
                 .toByteArray(Charsets.UTF_8)
@@ -102,8 +110,9 @@ object BackupSerializer {
         }.map { it.path }
 
         val attachmentFiles = files.filterKeys { it.startsWith(ATTACHMENTS_DIR) }
+        val memoryFiles = files.filterKeys { it.startsWith(MEMORY_DIR) }
 
-        return BackupPreview(manifest, data, mismatches, attachmentFiles)
+        return BackupPreview(manifest, data, mismatches, attachmentFiles, memoryFiles)
     }
 
     /** A note serialised as human-readable markdown with a small front-matter block. */

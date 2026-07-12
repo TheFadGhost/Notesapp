@@ -2,6 +2,7 @@ package com.fadghost.notesapp.data.backup
 
 import android.content.Context
 import android.net.Uri
+import com.fadghost.notesapp.data.memory.MemoryRepository
 import com.fadghost.notesapp.data.repo.NotesRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -18,14 +19,19 @@ import javax.inject.Singleton
 @Singleton
 class BackupManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val repository: NotesRepository
+    private val repository: NotesRepository,
+    private val memoryRepository: MemoryRepository
 ) {
-    /** Export every note (and its attachment files) to the user-picked ZIP [target]. */
+    /** Export every note (attachment files + the memory vault) to the user-picked ZIP [target]. */
     suspend fun export(target: Uri): Int = withContext(Dispatchers.IO) {
         val data = repository.buildBackup()
         val attachmentBytes = repository.exportAttachmentBytes()
+        val memoryBytes = memoryRepository.exportBytes()
         context.contentResolver.openOutputStream(target)?.use { out ->
-            BackupSerializer.export(data, out, now = System.currentTimeMillis(), attachmentBytes = attachmentBytes)
+            BackupSerializer.export(
+                data, out, now = System.currentTimeMillis(),
+                attachmentBytes = attachmentBytes, memoryBytes = memoryBytes
+            )
         } ?: error("Could not open $target for writing")
         data.notes.size
     }
