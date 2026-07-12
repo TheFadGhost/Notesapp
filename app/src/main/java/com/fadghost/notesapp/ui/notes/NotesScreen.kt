@@ -129,9 +129,14 @@ fun NotesScreen(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                // The note count competes with the title for width; drop it on narrow
-                // screens so "Notes" always has room (P0-2). The grid toggle stays.
-                val roomForCount = LocalConfiguration.current.screenWidthDp >= 360
+                // Title has layout priority (weight(1f) above); the count and the grid
+                // toggle are the fixed-width siblings that starve it. Drop the count first
+                // (<360dp), then the toggle at ultra-narrow (<200dp, the ~122dp / 320px
+                // repro) so the word "Notes" always renders legibly instead of collapsing
+                // to an ellipsis "•••" (P0-2).
+                val screenWidthDp = LocalConfiguration.current.screenWidthDp
+                val roomForCount = screenWidthDp >= 360
+                val roomForToggle = screenWidthDp >= 200
                 if (notes.isNotEmpty() && roomForCount) {
                     val pinned = notes.count { it.pinned }
                     val countText = "${notes.size} ${if (notes.size == 1) "note" else "notes"}" +
@@ -144,22 +149,24 @@ fun NotesScreen(
                     )
                     Spacer(Modifier.width(12.dp))
                 }
-                val gridToggleInteraction = remember { MutableInteractionSource() }
-                Box(
-                    Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(tokens.radii.pill))
-                        .auraPress(gridToggleInteraction, tint = true)
-                        .background(tokens.colors.surface)
-                        .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.pill))
-                        .clickable(
-                            interactionSource = gridToggleInteraction,
-                            indication = null,
-                            onClick = viewModel::toggleGrid
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    AuraGlyph(if (isGrid) Glyph.LIST else Glyph.GRID, tokens.colors.textPrimary, Modifier.size(20.dp))
+                if (roomForToggle) {
+                    val gridToggleInteraction = remember { MutableInteractionSource() }
+                    Box(
+                        Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(tokens.radii.pill))
+                            .auraPress(gridToggleInteraction, tint = true)
+                            .background(tokens.colors.surface)
+                            .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.pill))
+                            .clickable(
+                                interactionSource = gridToggleInteraction,
+                                indication = null,
+                                onClick = viewModel::toggleGrid
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AuraGlyph(if (isGrid) Glyph.LIST else Glyph.GRID, tokens.colors.textPrimary, Modifier.size(20.dp))
+                    }
                 }
             }
 
