@@ -1,6 +1,7 @@
 package com.fadghost.notesapp.ui.settings
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -42,6 +43,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.fadghost.notesapp.data.ai.model.CachedModel
 import com.fadghost.notesapp.ui.ai.SoftButton
@@ -289,19 +292,32 @@ private fun ModelPickerSheet(
 ) {
     val tokens = Aura.tokens
     var freeText by remember(visible) { mutableStateOf("") }
-    AnimatedVisibility(visible, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = tokens.elevation.scrim))
-                .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onDismiss)
-        ) {
-            AnimatedVisibility(
-                visible,
-                enter = slideInVertically(spring(stiffness = Spring.StiffnessLow)) { it } + fadeIn(),
-                exit = slideOutVertically { it } + fadeOut(),
-                modifier = Modifier.align(Alignment.BottomCenter)
+    // Render the picker in a real overlay window (Popup) so it draws above the entire
+    // screen with its own scrim. Previously this Box composed inline inside Settings'
+    // vertical-scroll Column, where fillMaxSize collapsed and the sheet was laid out
+    // off-screen below the page content — so tapping a model row appeared to do nothing.
+    // MutableTransitionState keeps the Popup mounted through the exit animation, then
+    // unmounts it so it never blocks touches on the settings screen behind it.
+    val sheetState = remember { MutableTransitionState(false) }
+    sheetState.targetState = visible
+    if (sheetState.currentState || sheetState.targetState) Popup(
+        alignment = Alignment.TopStart,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true)
+    ) {
+        AnimatedVisibility(sheetState, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = tokens.elevation.scrim))
+                    .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onDismiss)
             ) {
+                AnimatedVisibility(
+                    sheetState.targetState,
+                    enter = slideInVertically(spring(stiffness = Spring.StiffnessLow)) { it } + fadeIn(),
+                    exit = slideOutVertically { it } + fadeOut(),
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                ) {
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -389,6 +405,7 @@ private fun ModelPickerSheet(
                 }
             }
         }
+    }
     }
 }
 
