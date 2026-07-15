@@ -61,7 +61,6 @@ class AudioAttachmentRepository @Inject constructor(
         val row = dao.byId(id) ?: return
         row.segments.forEach { runCatching { File(it).delete() } }
         dao.deleteById(id)
-        row.segments.mapNotNull { File(it).parentFile }.distinct().forEach(AudioStorage::pruneEmptySessionParents)
         pruneEmptyDir(row.noteId)
     }
 
@@ -80,7 +79,6 @@ class AudioAttachmentRepository @Inject constructor(
         val orphans = AudioStorage.findOrphans(root, referenced)
             .filter { it.extension.equals("m4a", ignoreCase = true) }
         orphans.forEach { runCatching { it.delete() } }
-        AudioStorage.pruneEmptyDirectories(root)
         // Tidy up now-empty note dirs.
         runCatching {
             root.listFiles()?.forEach { dir ->

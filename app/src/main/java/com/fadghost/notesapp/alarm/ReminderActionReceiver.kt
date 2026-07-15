@@ -48,10 +48,7 @@ class ReminderActionReceiver : BroadcastReceiver() {
         // scheduler fires at snoozedUntil, but recurrence still advances from the
         // original slot so snoozing never drifts the cadence (audit M1).
         ep.reminderDao().reschedule(id, reminder.triggerAt, until)
-        ep.reminderDao().setAlarmFired(id, false)
-        ep.alarmScheduler().scheduleReminder(
-            reminder.copy(snoozedUntil = until, done = false, alarmFired = false)
-        )
+        ep.alarmScheduler().scheduleReminder(reminder.copy(snoozedUntil = until, done = false))
     }
 
     companion object {

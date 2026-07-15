@@ -35,8 +35,7 @@ data class ItemDraft(
     val kind: CalendarKind = CalendarKind.EVENT,
     val title: String = "",
     val start: Long,
-    /** Null means this event has no explicit end time. */
-    val end: Long? = null,
+    val end: Long,
     val notes: String = "",
     val recurrence: Recurrence = Recurrence.NONE
 )
@@ -57,12 +56,12 @@ object CalendarExpand {
         val out = ArrayList<CalendarItem>()
         for (e in events) {
             val eZone = runCatching { ZoneId.of(e.timezone) }.getOrDefault(zone)
-            val duration = e.endAt?.let { (it - e.startAt).coerceAtLeast(0) }
+            val duration = (e.endAt - e.startAt).coerceAtLeast(0)
             for (start in RecurrenceMath.occurrencesInRange(e.startAt, eZone, e.recurrence, rangeStart, rangeEnd)) {
                 out.add(
                     CalendarItem(
                         baseId = e.id, kind = CalendarKind.EVENT, title = e.title,
-                        startMillis = start, endMillis = duration?.let(start::plus), timezone = e.timezone,
+                        startMillis = start, endMillis = start + duration, timezone = e.timezone,
                         notes = e.notes, recurrence = e.recurrence, done = false
                     )
                 )
@@ -87,20 +86,4 @@ object CalendarExpand {
     fun groupByDay(items: List<CalendarItem>, zone: ZoneId): Map<LocalDate, List<CalendarItem>> =
         items.groupBy { dayOf(it.startMillis, zone) }
             .toSortedMap()
-}
-
-/** Pure end-time state rules shared by the sheet and deterministic unit tests. */
-object EventEndTime {
-    const val DEFAULT_DURATION_MS = 60 * 60 * 1_000L
-    const val MIN_DURATION_MS = 60 * 1_000L
-
-    fun defaultFor(start: Long): Long = start + DEFAULT_DURATION_MS
-
-    /** Preserve the selected duration when the start moves. */
-    fun moveWithStart(oldStart: Long, newStart: Long, end: Long): Long =
-        newStart + (end - oldStart).coerceAtLeast(MIN_DURATION_MS)
-
-    /** An enabled end must always be strictly after its start. */
-    fun validEnd(start: Long, candidate: Long): Long =
-        candidate.coerceAtLeast(start + MIN_DURATION_MS)
 }

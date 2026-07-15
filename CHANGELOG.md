@@ -6,46 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses simple date-tagged releases rather than strict SemVer
 (it's a sideloaded personal app, not a library).
 
-## [v4.0.0] - 2026-07-15 - Deliberate Motion & Reliable Capture
-
-This release tightens the app's interaction model: gestures distinguish intent, recording can
-continue behind other apps with real controls, diary speech can be cleaned without overwriting the
-raw meaning, and calendar reminders are explicit about the permissions they need to fire.
-
-### Added
-- Permission-gated **floating recording controls** over other apps: a compact draggable squircle
-  opens Pause/Resume, Stop, Discard and Open controls. Dragging uses Android touch slop and cannot
-  leak through as a click; position is kept between recordings.
-- Foreground microphone session shared by the recording sheet, notification and floating controls.
-- Diary speech-to-text for today and past entries, followed by an explicit **Make it clean** action
-  that turns the selected transcript into sentences while preserving surrounding diary text.
-- Local **PDF sharing** for notes and diary entries through Android's share sheet.
-- Optional event end times, with a spring toggle and duration-preserving start-time edits.
-- Press-and-hold help labels for icon-only bottom controls; labels disappear on release.
-- Long-press attachment dragging to reposition photo/file chips inside a note.
-
-### Changed
-- The navbar is now clearly translucent instead of overly transparent; its traveling-circle spring
-  is unchanged. Invisible pull zones beside the bar make the capture menu easier to drag open.
-- Buttons, toggles, FABs and entering panels use the shared spring vocabulary and still honor
-  Reduce motion.
-- The editor reserves a right-side rail for voice chips and keeps the active typing area above the
-  keyboard. The attachment source panel is smaller.
-- AI memory tags are explicit semantic topics only; capitalization no longer creates hashtag-like
-  labels, and tag pills no longer display a leading `#`.
-
-### Fixed
-- Exact/inexact alarm scheduling is now wired through create, edit, undo, delete, snooze,
-  recurrence, reboot and app-update paths. Missing exact-alarm or notification permission is shown
-  as an actionable setup card instead of silently storing a reminder that cannot alert.
-- Delivered one-shot reminders no longer fire again after reboot or a cold start.
-- Drag attempts on the recording bubble no longer register as clicks.
-- Calendar create/edit sheet no longer clips its bottom controls; it can spring in and drag down to
-  dismiss. The Calendar add control and shared FAB now spring without bottom clipping.
-- Note context-menu rows, including Delete, use the full available 48dp hit area.
-- Voice and attachment popovers have tighter bounds and no stray gap below the sheet.
-- The AI menu now enters with a distinct spring pop instead of fading in from nowhere.
-
 ## [v3.0.0] - 2026-07-12 - Attachments & Memory
 
 Adds image/file attachments and the first half of the Folio AI memory system, on top of a
@@ -155,6 +115,5 @@ First full release, built in milestones.
 - Signing config and CI workflow
 
 [v2.0.0]: https://github.com/TheFadGhost/Notesapp/releases/tag/v2.0.0
-[v4.0.0]: https://github.com/TheFadGhost/Notesapp/releases/tag/v4.0.0
 [v1.0.1]: https://github.com/TheFadGhost/Notesapp/releases/tag/v1.0.1
 [v1.0.0]: https://github.com/TheFadGhost/Notesapp/releases/tag/v1.0.0

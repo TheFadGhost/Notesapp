@@ -14,7 +14,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,7 +52,6 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -315,54 +313,6 @@ fun AppShell(
         // tabs keep equal, on-screen, tappable widths instead of clipping off the edge.
         val fabReserved = navShowFab(screenWidth)
         val slotWidth = navTabSlotWidth(screenWidth, fabReserved)
-        val pillWidth = NavPillHPadding * 2 + slotWidth * NavTab.entries.size
-        val clusterWidth = pillWidth + if (fabReserved) NavFabGap + NavFabSize else 0.dp
-        val clusterStart = ((screenWidth - clusterWidth) / 2).coerceAtLeast(0.dp)
-        val leftPullWidth = minOf(36.dp, clusterStart)
-        val rightPullWidth = if (fabReserved) NavFabGap else minOf(36.dp, screenWidth - clusterStart - pillWidth)
-
-        // Invisible pull zones beside (not on top of) the visual pill. They make the
-        // downward menu gesture forgiving without enlarging or restyling the bar itself.
-        // The nav/FAB row is drawn afterwards and therefore retains priority in its own
-        // hitboxes. A drag must cross touch slop before this detector consumes anything.
-        fun Modifier.captureMenuPull(): Modifier = pointerInput(captureVisible) {
-            var travel = 0f
-            val trigger = 24.dp.toPx()
-            detectVerticalDragGestures(
-                onDragStart = { travel = 0f },
-                onDragCancel = { travel = 0f },
-                onDragEnd = { travel = 0f },
-                onVerticalDrag = { change, amount ->
-                    travel = (travel + amount).coerceAtLeast(0f)
-                    if (travel >= trigger && !captureVisible) {
-                        change.consume()
-                        captureVisible = true
-                    }
-                }
-            )
-        }
-        if (editorNoteId == null && leftPullWidth > 0.dp) {
-            Box(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = clusterStart - leftPullWidth, bottom = navInset + NavPillBottomMargin)
-                    .width(leftPullWidth)
-                    .height(NavPillHeight + 28.dp)
-                    .captureMenuPull()
-                    .clearAndSetSemantics {}
-            )
-        }
-        if (editorNoteId == null && rightPullWidth > 0.dp) {
-            Box(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = clusterStart + pillWidth, bottom = navInset + NavPillBottomMargin)
-                    .width(rightPullWidth)
-                    .height(NavPillHeight + 28.dp)
-                    .captureMenuPull()
-                    .clearAndSetSemantics {}
-            )
-        }
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)

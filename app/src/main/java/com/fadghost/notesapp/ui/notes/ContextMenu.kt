@@ -1,6 +1,8 @@
 package com.fadghost.notesapp.ui.notes
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,8 +13,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,8 +34,6 @@ import com.fadghost.notesapp.ui.components.Glyph
 import com.fadghost.notesapp.ui.components.auraPress
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraType
-import com.fadghost.notesapp.ui.theme.LocalReduceMotion
-import com.fadghost.notesapp.ui.theme.MotionTokens
 
 data class ContextMenuItem(
     val glyph: Glyph,
@@ -67,7 +65,7 @@ fun NoteContextMenu(
     ) {
         Column(
             Modifier
-                .widthIn(min = 220.dp, max = 280.dp)
+                .widthIn(min = 220.dp)
                 .clip(RoundedCornerShape(tokens.radii.lg))
                 .background(tokens.colors.surfaceTranslucent)
                 .border(1.dp, tokens.colors.outline, RoundedCornerShape(tokens.radii.lg))
@@ -88,18 +86,15 @@ fun NoteContextMenu(
 @Composable
 private fun MenuRow(item: ContextMenuItem, index: Int, onDismiss: () -> Unit) {
     val tokens = Aura.tokens
-    val reduceMotion = LocalReduceMotion.current
     val appear = remember { Animatable(0f) }
-    LaunchedEffect(index, reduceMotion) {
-        if (!reduceMotion) kotlinx.coroutines.delay(index * 32L)
-        appear.animateTo(1f, MotionTokens.bouncy(reduceMotion))
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(index * 32L)
+        appear.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
     }
     val color = if (item.danger) tokens.colors.danger else tokens.colors.textPrimary
     val interaction = remember { MutableInteractionSource() }
     Row(
         Modifier
-            .fillMaxWidth()
-            .heightIn(min = 48.dp)
             .graphicsLayer {
                 alpha = appear.value
                 translationX = (1f - appear.value) * -24f

@@ -90,26 +90,18 @@ class AudioRecorder(
         runCatching { stop() }
         accumulator.paths().forEach { runCatching { File(it).delete() } }
         // Remove the note dir if we left it empty.
-        runCatching { AudioStorage.pruneEmptySessionParents(noteDir) }
+        runCatching { if (noteDir.listFiles()?.isEmpty() == true) noteDir.delete() }
     }
 
     private fun startSegment(index: Int) {
         val file = AudioStorage.segmentFile(noteDir, index)
-        var rec: MediaRecorder? = null
-        try {
-            rec = buildRecorder()
-            recorder = rec
-            currentFile = file
-            rec.setOutputFile(file.absolutePath)
-            rec.prepare()
-            rec.start()
-        } catch (error: Throwable) {
-            runCatching { rec?.release() }
-            recorder = null
-            currentFile = null
-            runCatching { file.delete() }
-            throw error
+        val rec = buildRecorder().apply {
+            setOutputFile(file.absolutePath)
+            prepare()
+            start()
         }
+        recorder = rec
+        currentFile = file
         segmentStart = SystemClock.elapsedRealtime()
         pausedTotal = 0L
         isPaused = false
@@ -134,19 +126,13 @@ class AudioRecorder(
         } else {
             MediaRecorder()
         }
-        try {
-            rec.apply {
+        return rec.apply {
             setAudioSource(MediaRecorder.AudioSource.MIC)
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             setAudioChannels(1)                 // MONO (PLAN.md §3)
             setAudioSamplingRate(16_000)        // 16 kHz
-                setAudioEncodingBitRate(48_000)     // ~48 kbps
-            }
-            return rec
-        } catch (error: Throwable) {
-            runCatching { rec.release() }
-            throw error
+            setAudioEncodingBitRate(48_000)     // ~48 kbps
         }
     }
 }

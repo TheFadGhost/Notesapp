@@ -1,6 +1,9 @@
 package com.fadghost.notesapp.ui.calendar
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -8,9 +11,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -30,35 +30,26 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.fadghost.notesapp.data.db.entity.Recurrence
 import com.fadghost.notesapp.ui.ai.SoftButton
 import com.fadghost.notesapp.ui.components.AuraDateTimePicker
-import com.fadghost.notesapp.ui.components.AuraToggle
 import com.fadghost.notesapp.ui.components.auraPress
-import com.fadghost.notesapp.ui.shell.LocalNavPillClearance
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.AuraType
-import com.fadghost.notesapp.ui.theme.LocalReduceMotion
-import com.fadghost.notesapp.ui.theme.MotionTokens
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
-import kotlinx.coroutines.launch
 
 /**
  * Pure, testable save-gate for the create/edit sheet (ux.md P1-4). Kept free of any
@@ -91,18 +82,9 @@ fun ItemDetailSheet(
     onDelete: (ItemDraft) -> Unit
 ) {
     val tokens = Aura.tokens
-    val reduceMotion = LocalReduceMotion.current
     val visible = draft != null
-    var lastDraft by remember { mutableStateOf<ItemDraft?>(null) }
-    val renderedDraft = draft ?: lastDraft
-    SideEffect { if (draft != null) lastDraft = draft }
 
-    AnimatedVisibility(
-        visible,
-        enter = fadeIn(MotionTokens.fastFinite(reduceMotion)),
-        exit = fadeOut(MotionTokens.fastFinite(reduceMotion)),
-        modifier = Modifier.fillMaxSize()
-    ) {
+    AnimatedVisibility(visible, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
         Box(
             Modifier
                 .fillMaxSize()
@@ -112,12 +94,10 @@ fun ItemDetailSheet(
         ) {
             AnimatedVisibility(
                 visible,
-                enter = slideInVertically(MotionTokens.bouncyFinite(reduceMotion)) { it } +
-                    fadeIn(MotionTokens.fastFinite(reduceMotion)),
-                exit = slideOutVertically(MotionTokens.fastFinite(reduceMotion)) { it } +
-                    fadeOut(MotionTokens.fastFinite(reduceMotion))
+                enter = slideInVertically(spring(stiffness = Spring.StiffnessLow)) { it } + fadeIn(tween(140)),
+                exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(120))
             ) {
-                val seed = renderedDraft ?: return@AnimatedVisibility
+                val seed = draft ?: return@AnimatedVisibility
                 SheetBody(seed, zone, onDismiss, onSave, onDelete)
             }
         }
@@ -134,69 +114,34 @@ private fun SheetBody(
 ) {
     val tokens = Aura.tokens
     val isNew = seed.baseId == 0L
-    // Clear the floating nav pill (inset + pill + margin + gap), not just the system
-    // nav bar — otherwise the Repeat row and Save/Create buttons render under the pill.
-    val navClearance = LocalNavPillClearance.current
-    val reduceMotion = LocalReduceMotion.current
-    val scope = rememberCoroutineScope()
-    val density = LocalDensity.current
-    val dragOffset = remember(seed) { androidx.compose.animation.core.Animatable(0f) }
-    val dismissThresholdPx = with(density) { 112.dp.toPx() }
-    val dragState = rememberDraggableState { delta ->
-        scope.launch {
-            val next = dragOffset.value + delta
-            dragOffset.snapTo(if (next < 0f) next.coerceAtLeast(-24f) else next)
-        }
-    }
 
     var kind by remember(seed) { mutableStateOf(seed.kind) }
     var title by remember(seed) { mutableStateOf(seed.title) }
     var start by remember(seed) { mutableStateOf(toLdt(seed.start, zone)) }
-    var endEnabled by remember(seed) { mutableStateOf(seed.end != null) }
-    var end by remember(seed) {
-        mutableStateOf(toLdt(seed.end ?: EventEndTime.defaultFor(seed.start), zone))
-    }
+    var end by remember(seed) { mutableStateOf(toLdt(seed.end, zone)) }
     var notes by remember(seed) { mutableStateOf(seed.notes) }
     var recurrence by remember(seed) { mutableStateOf(seed.recurrence) }
 
     Column(
         Modifier
             .fillMaxWidth()
-            .graphicsLayer { translationY = dragOffset.value }
-            // imePadding OUTSIDE the surface lifts the whole bottom-anchored sheet above
-            // the keyboard so the title/notes field and the action buttons stay visible.
-            .imePadding()
             .clip(RoundedCornerShape(topStart = tokens.radii.lg, topEnd = tokens.radii.lg))
             .background(tokens.colors.surface)
             .border(1.dp, tokens.colors.outline, RoundedCornerShape(topStart = tokens.radii.lg, topEnd = tokens.radii.lg))
             .clickable(remember { MutableInteractionSource() }, indication = null, onClick = {})
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp)
-            .padding(top = 20.dp, bottom = navClearance.coerceAtLeast(20.dp))
+            .padding(20.dp)
+            .navigationBarsPadding()
     ) {
         // Grab handle.
         Box(
             Modifier
-                .padding(bottom = 8.dp)
-                .size(width = 80.dp, height = 28.dp)
-                .draggable(
-                    orientation = Orientation.Vertical,
-                    state = dragState,
-                    onDragStopped = {
-                        if (dragOffset.value >= dismissThresholdPx) onDismiss()
-                        else dragOffset.animateTo(0f, MotionTokens.settle(reduceMotion))
-                    }
-                )
+                .padding(bottom = 14.dp)
+                .size(width = 40.dp, height = 4.dp)
+                .clip(RoundedCornerShape(tokens.radii.pill))
+                .background(tokens.colors.outline)
                 .align(Alignment.CenterHorizontally)
-        ) {
-            Box(
-                Modifier
-                    .size(width = 40.dp, height = 4.dp)
-                    .clip(RoundedCornerShape(tokens.radii.pill))
-                    .background(tokens.colors.outline)
-                    .align(Alignment.Center)
-            )
-        }
+        )
 
         BasicText(
             if (isNew) "New ${kind.name.lowercase()}" else "Edit",
@@ -221,15 +166,9 @@ private fun SheetBody(
         Box(Modifier.horizontalScroll(rememberScrollState())) {
             AuraDateTimePicker(value = start, onChange = { newStart ->
                 // Keep the event duration when the user shifts the start.
-                if (kind == CalendarKind.EVENT && endEnabled) {
-                    end = toLdt(
-                        EventEndTime.moveWithStart(
-                            toMillis(start, zone),
-                            toMillis(newStart, zone),
-                            toMillis(end, zone)
-                        ),
-                        zone
-                    )
+                if (kind == CalendarKind.EVENT) {
+                    val delta = java.time.Duration.between(start, newStart)
+                    end = end.plus(delta)
                 }
                 start = newStart
             }, zone = zone)
@@ -237,33 +176,10 @@ private fun SheetBody(
 
         if (kind == CalendarKind.EVENT) {
             Spacer(Modifier.size(14.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.weight(1f)) {
-                    BasicText("End time", style = AuraType.label.copy(color = tokens.colors.textPrimary))
-                    BasicText(
-                        if (endEnabled) "Event has a finish time" else "No end time",
-                        style = AuraType.label.copy(color = tokens.colors.textSecondary)
-                    )
-                }
-                AuraToggle(checked = endEnabled, onCheckedChange = { enabled ->
-                    if (enabled && !end.isAfter(start)) {
-                        end = toLdt(EventEndTime.defaultFor(toMillis(start, zone)), zone)
-                    }
-                    endEnabled = enabled
-                })
-            }
-            if (endEnabled) {
-                Spacer(Modifier.size(8.dp))
-                Box(Modifier.horizontalScroll(rememberScrollState())) {
-                    AuraDateTimePicker(value = end, onChange = { candidate ->
-                        end = toLdt(
-                            EventEndTime.validEnd(
-                                toMillis(start, zone), toMillis(candidate, zone)
-                            ),
-                            zone
-                        )
-                    }, zone = zone)
-                }
+            BasicText("Ends", style = AuraType.label.copy(color = tokens.colors.textSecondary))
+            Spacer(Modifier.size(6.dp))
+            Box(Modifier.horizontalScroll(rememberScrollState())) {
+                AuraDateTimePicker(value = end, onChange = { end = it }, zone = zone)
             }
         }
 
@@ -304,9 +220,7 @@ private fun SheetBody(
             SoftButton("Cancel", filled = false, onClick = onDismiss)
             Spacer(Modifier.size(10.dp))
             SaveButton(label = if (isNew) "Create" else "Save", enabled = canSave, onClick = {
-                val endMs = if (kind == CalendarKind.EVENT && endEnabled) {
-                    EventEndTime.validEnd(startMs, toMillis(end, zone))
-                } else null
+                val endMs = toMillis(if (end.isBefore(start)) start.plusHours(1) else end, zone)
                 onSave(
                     seed.copy(
                         kind = kind,

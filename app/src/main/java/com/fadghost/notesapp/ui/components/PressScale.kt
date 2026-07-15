@@ -1,6 +1,7 @@
 package com.fadghost.notesapp.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.getValue
@@ -11,7 +12,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.debugInspectorInfo
 import com.fadghost.notesapp.ui.theme.Aura
 import com.fadghost.notesapp.ui.theme.LocalReduceMotion
-import com.fadghost.notesapp.ui.theme.MotionTokens
 
 /**
  * The one shared press-feedback modifier (ux.md P1-1). Every clickable Aura surface —
@@ -46,12 +46,12 @@ fun Modifier.auraPress(
 
     val scale by animateFloatAsState(
         targetValue = if (pressed && !reduceMotion) pressedScale else 1f,
-        animationSpec = MotionTokens.press(reduceMotion),
+        animationSpec = tween(if (reduceMotion) 0 else 100),
         label = "auraPressScale"
     )
     val tintAlpha by animateFloatAsState(
         targetValue = if (pressed) tokens.elevation.pressed else 0f,
-        animationSpec = MotionTokens.fast(reduceMotion),
+        animationSpec = tween(if (reduceMotion) 0 else 100),
         label = "auraPressTint"
     )
 

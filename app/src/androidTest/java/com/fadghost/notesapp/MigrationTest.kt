@@ -5,7 +5,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.fadghost.notesapp.data.db.MIGRATION_6_7
 import com.fadghost.notesapp.data.db.MIGRATION_7_8
-import com.fadghost.notesapp.data.db.MIGRATION_8_9
 import com.fadghost.notesapp.data.db.NotesDatabase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -125,33 +124,5 @@ class MigrationTest {
         }
 
         room.close()
-    }
-
-    @Test
-    fun migrate8To9_makesEventEndOptional_andTracksAlarmDelivery() {
-        helper.createDatabase(testDb, 8).use { db ->
-            db.execSQL(
-                "INSERT INTO Event (id, title, startAt, endAt, timezone, notes, recurrence) " +
-                    "VALUES (1, 'Focus', 1000, 2000, 'Europe/London', NULL, 'NONE')"
-            )
-            db.execSQL(
-                "INSERT INTO Reminder (id, title, triggerAt, timezone, done, snoozedUntil, recurrence) " +
-                    "VALUES (1, 'Call', 3000, 'Europe/London', 0, NULL, 'NONE')"
-            )
-        }
-
-        val db = helper.runMigrationsAndValidate(testDb, 9, true, MIGRATION_8_9)
-        db.execSQL(
-            "INSERT INTO Event (id, title, startAt, endAt, timezone, notes, recurrence) " +
-                "VALUES (2, 'Open ended', 4000, NULL, 'Europe/London', NULL, 'NONE')"
-        )
-        db.query("SELECT endAt FROM Event WHERE id = 2").use { cursor ->
-            assertTrue(cursor.moveToFirst())
-            assertTrue(cursor.isNull(0))
-        }
-        db.query("SELECT alarmFired FROM Reminder WHERE id = 1").use { cursor ->
-            assertTrue(cursor.moveToFirst())
-            assertEquals(0L, cursor.getLong(0))
-        }
     }
 }

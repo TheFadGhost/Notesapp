@@ -9,7 +9,6 @@ import com.fadghost.notesapp.data.db.MIGRATION_4_5
 import com.fadghost.notesapp.data.db.MIGRATION_5_6
 import com.fadghost.notesapp.data.db.MIGRATION_6_7
 import com.fadghost.notesapp.data.db.MIGRATION_7_8
-import com.fadghost.notesapp.data.db.MIGRATION_8_9
 import com.fadghost.notesapp.data.db.NotesDatabase
 import com.fadghost.notesapp.data.db.dao.AiCostDao
 import com.fadghost.notesapp.data.db.dao.AttachmentDao
@@ -40,7 +39,7 @@ object DatabaseModule {
             .addCallback(NotesDatabase.CALLBACK)
             .addMigrations(
                 MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9
+                MIGRATION_6_7, MIGRATION_7_8
             )
             .build()
 

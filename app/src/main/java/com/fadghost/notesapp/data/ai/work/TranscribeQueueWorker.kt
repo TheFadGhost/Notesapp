@@ -14,7 +14,6 @@ import com.fadghost.notesapp.data.audio.RecordedSegment
 import com.fadghost.notesapp.data.audio.VoiceCommit
 import com.fadghost.notesapp.data.audio.VoiceCommitLogic
 import com.fadghost.notesapp.data.audio.VoiceTranscriber
-import com.fadghost.notesapp.data.audio.PartialVoiceTranscriptionException
 import com.fadghost.notesapp.data.repo.NotesRepository
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -65,50 +64,36 @@ class TranscribeQueueWorker(
             return Result.success()
         }
 
-        val transcript = try {
-            ep.transcriber().transcribe(files, noteId)
-        } catch (error: PartialVoiceTranscriptionException) {
-            files.forEach { runCatching { it.delete() } }
-            return Result.failure(workDataOf("error" to "Partial transcription cannot be retried safely."))
-        } catch (_: Throwable) {
-            return Result.retry() // no segment completed, so no duplicate billing is possible
-        }
-        val segments = paths.mapIndexed { i, p -> RecordedSegment(p, durations.getOrElse(i) { 0L }) }
-        return runCatching { ep.voiceCommit().appendTranscript(noteId, transcript, segments) }
-            .fold(
-                onSuccess = { Result.success() },
-                onFailure = {
-                    files.forEach { file -> runCatching { file.delete() } }
-                    Result.failure(workDataOf("error" to "Transcript completed but commit failed; retry disabled."))
-                }
-            )
+        return runCatching {
+            val transcript = ep.transcriber().transcribe(files, noteId)
+            val segments = paths.mapIndexed { i, p -> RecordedSegment(p, durations.getOrElse(i) { 0L }) }
+            ep.voiceCommit().appendTranscript(noteId, transcript, segments)
+        }.fold(onSuccess = { Result.success() }, onFailure = { Result.retry() })
     }
 
     companion object {
         const val KEY_NOTE_ID = "note_id"
         const val KEY_SEGMENT_PATHS = "segment_paths"
         const val KEY_SEGMENT_DURATIONS = "segment_durations"
-        const val KEY_SESSION_ID = "session_id"
         private const val PREFIX = "voice_transcribe_"
 
-        fun uniqueName(sessionId: String) = "$PREFIX$sessionId"
+        fun uniqueName(noteId: Long) = "$PREFIX$noteId"
 
         /** Enqueue transcription of [segments] into [noteId] when the network returns. */
-        fun enqueue(context: Context, noteId: Long, segments: List<RecordedSegment>, sessionId: String) {
+        fun enqueue(context: Context, noteId: Long, segments: List<RecordedSegment>) {
             val request = OneTimeWorkRequestBuilder<TranscribeQueueWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setInputData(
                     workDataOf(
                         KEY_NOTE_ID to noteId,
-                        KEY_SESSION_ID to sessionId,
                         KEY_SEGMENT_PATHS to segments.joinToString("\n") { it.path },
                         KEY_SEGMENT_DURATIONS to segments.joinToString("\n") { it.durationMs.toString() }
                     )
                 )
                 .build()
             WorkManager.getInstance(context).enqueueUniqueWork(
-                uniqueName(sessionId),
-                ExistingWorkPolicy.KEEP,
+                uniqueName(noteId),
+                ExistingWorkPolicy.REPLACE,
                 request
             )
         }

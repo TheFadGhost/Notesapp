@@ -177,32 +177,3 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
         MemoryFts.create(db)
     }
 }
-
-/**
- * v8 -> v9 (v4 calendar): an event end is now genuinely optional, and reminders
- * remember whether their one-shot alarm was already delivered. SQLite cannot drop
- * an existing NOT NULL constraint, so Event is rebuilt while preserving every row.
- */
-val MIGRATION_8_9 = object : Migration(8, 9) {
-    override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL(
-            "CREATE TABLE IF NOT EXISTS `Event_new` (" +
-                "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
-                "`title` TEXT NOT NULL, " +
-                "`startAt` INTEGER NOT NULL, " +
-                "`endAt` INTEGER, " +
-                "`timezone` TEXT NOT NULL, " +
-                "`notes` TEXT, " +
-                "`recurrence` TEXT NOT NULL)"
-        )
-        db.execSQL(
-            "INSERT INTO `Event_new` (`id`, `title`, `startAt`, `endAt`, `timezone`, `notes`, `recurrence`) " +
-                "SELECT `id`, `title`, `startAt`, `endAt`, `timezone`, `notes`, `recurrence` FROM `Event`"
-        )
-        db.execSQL("DROP TABLE `Event`")
-        db.execSQL("ALTER TABLE `Event_new` RENAME TO `Event`")
-        db.execSQL("CREATE INDEX IF NOT EXISTS `index_Event_startAt` ON `Event` (`startAt`)")
-
-        db.execSQL("ALTER TABLE `Reminder` ADD COLUMN `alarmFired` INTEGER NOT NULL DEFAULT 0")
-    }
-}
