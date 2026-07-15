@@ -1,6 +1,8 @@
 # "Notesapp" — AI Notes / Diary / Calendar for Android
 **Plan v2 — 2026-07-11** (v1 reviewed by two independent review passes + STT model research; all findings incorporated)
 
+> Current release: [v4.0.0](https://github.com/TheFadGhost/Notesapp/releases/tag/v4.0.0), published 2026-07-15. This document records the architectural direction; see [CHANGELOG.md](CHANGELOG.md) for the shipped feature and fix history.
+
 A personal, single-user Android app: notes + diary + calendar in one place, with OpenRouter-powered AI (summarize rambles, extract reminders/events), voice capture via speech-to-text, fully custom UI (no stock Android widgets), distributed as an APK through GitHub Releases.
 
 ---

@@ -71,10 +71,10 @@ Notesapp is a single-user Android app I built for myself: notes, a diary and a c
 
 ## Install
 
-1. Download the latest `app-release.apk` from [Releases](../../releases).
+1. Download the latest versioned `notesapp-v*.apk` from [Releases](../../releases).
 2. Open it on your phone; allow "install unknown apps" for your browser/files app when prompted.
 3. Android may show a Play Protect warning — this is normal for sideloaded apps not distributed through the Play Store; choose "Install anyway".
-4. Open **Settings → AI** in the app and paste your own [OpenRouter API key](https://openrouter.ai/keys). The app doesn't work without one — there's no bundled key or backend.
+4. To use AI clean-up or cloud speech-to-text, open **Settings → AI** and paste your own [OpenRouter API key](https://openrouter.ai/keys). Notes, diary, calendar, local alarms and PDF sharing continue to work without a key; there is no bundled key or backend.
 
 ## Build from source
 
