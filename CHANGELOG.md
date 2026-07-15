@@ -154,8 +154,7 @@ First full release, built in milestones.
 - Checksummed ZIP backup/restore (manual + scheduled)
 - Signing config and CI workflow
 
-[v4.0.0]: https://github.com/TheFadGhost/Notesapp/releases/tag/v4.0.0
-[v3.0.0]: https://github.com/TheFadGhost/Notesapp/releases/tag/v3.0.0
 [v2.0.0]: https://github.com/TheFadGhost/Notesapp/releases/tag/v2.0.0
+[v4.0.0]: https://github.com/TheFadGhost/Notesapp/releases/tag/v4.0.0
 [v1.0.1]: https://github.com/TheFadGhost/Notesapp/releases/tag/v1.0.1
 [v1.0.0]: https://github.com/TheFadGhost/Notesapp/releases/tag/v1.0.0
