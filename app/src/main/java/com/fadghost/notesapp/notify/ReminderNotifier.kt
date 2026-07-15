@@ -29,10 +29,15 @@ object ReminderNotifier {
     private const val LANE_SNOOZE_60 = 3
     private const val LANES = 4
 
-    fun notify(context: Context, reminder: Reminder) {
-        if (!hasPermission(context)) return
+    /** Returns true only when Android accepted a visible notification. */
+    fun notify(context: Context, reminder: Reminder): Boolean {
+        if (!hasPermission(context)) return false
         NotificationChannels.ensure(context)
-        val mgr = context.getSystemService(NotificationManager::class.java) ?: return
+        val mgr = context.getSystemService(NotificationManager::class.java) ?: return false
+        if (!mgr.areNotificationsEnabled()) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            mgr.getNotificationChannel(NotificationChannels.REMINDERS)?.importance == NotificationManager.IMPORTANCE_NONE
+        ) return false
 
         val id = reminder.id
         val notification: Notification = NotificationCompat.Builder(context, NotificationChannels.REMINDERS)
@@ -48,7 +53,10 @@ object ReminderNotifier {
             .addAction(0, "Snooze 1h", actionIntent(context, id, ReminderActionReceiver.ACTION_SNOOZE_60, LANE_SNOOZE_60))
             .build()
 
-        mgr.notify(notificationId(id), notification)
+        return runCatching {
+            mgr.notify(notificationId(id), notification)
+            true
+        }.getOrDefault(false)
     }
 
     fun cancel(context: Context, reminderId: Long) {

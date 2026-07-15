@@ -92,7 +92,7 @@ fun ContextualFab(
     val hideTarget = if (hidden && !panelOpen) with(density) { 88.dp.toPx() } else 0f
     val hideX by animateFloatAsState(
         hideTarget,
-        if (reduceMotion) tween(0) else tween(220),
+        MotionTokens.settle(reduceMotion),
         label = "fabHide"
     )
     val fabAlpha by animateFloatAsState(
@@ -103,16 +103,21 @@ fun ContextualFab(
     // "+" rotates toward "x" while the panel is open.
     val rotation by animateFloatAsState(
         if (panelOpen) 45f else 0f,
-        if (reduceMotion) tween(0) else tween(200),
+        MotionTokens.press(reduceMotion),
         label = "fabRotate"
     )
     // Shared Aura press feedback — detectTapGestures drives a pressed flag (it has no
     // InteractionSource), honouring reduce-motion like [auraPress] elsewhere.
     var pressed by remember { mutableStateOf(false) }
     val pressScale by animateFloatAsState(
-        if (pressed && !reduceMotion) 0.94f else 1f,
-        tween(if (reduceMotion) 0 else 100),
+        if (pressed && !reduceMotion) 0.92f else 1f,
+        MotionTokens.press(reduceMotion),
         label = "fabPress"
+    )
+    val pressLift by animateFloatAsState(
+        if (pressed && !reduceMotion) with(density) { (-6).dp.toPx() } else 0f,
+        MotionTokens.press(reduceMotion),
+        label = "fabPressLift"
     )
 
     Box(
@@ -120,6 +125,7 @@ fun ContextualFab(
             .size(FAB_SIZE)
             .graphicsLayer {
                 translationX = hideX
+                translationY = pressLift
                 alpha = fabAlpha
                 scaleX = pressScale
                 scaleY = pressScale

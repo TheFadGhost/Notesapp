@@ -31,7 +31,8 @@ class AlarmReceiver : BroadcastReceiver() {
             try {
                 val reminder = ep.reminderDao().getById(id)
                 if (reminder != null && !reminder.done) {
-                    ReminderNotifier.notify(context, reminder)
+                    val posted = ReminderNotifier.notify(context, reminder)
+                    if (!posted) return@launch
                     if (reminder.recurrence != Recurrence.NONE) {
                         val zone = runCatching { ZoneId.of(reminder.timezone) }.getOrDefault(ZoneId.systemDefault())
                         // Anchor on the true recurrence slot (triggerAt, never a snoozed
@@ -42,7 +43,15 @@ class AlarmReceiver : BroadcastReceiver() {
                             reminder.triggerAt, zone, reminder.recurrence, System.currentTimeMillis()
                         )
                         ep.reminderDao().reschedule(id, next, null)
-                        ep.alarmScheduler().scheduleReminder(reminder.copy(triggerAt = next, snoozedUntil = null))
+                        ep.reminderDao().setAlarmFired(id, false)
+                        ep.alarmScheduler().scheduleReminder(
+                            reminder.copy(triggerAt = next, snoozedUntil = null, alarmFired = false)
+                        )
+                    } else {
+                        // AlarmManager removes the PendingIntent after delivery, but the
+                        // row remains useful until the user marks it done. Persist delivery
+                        // separately so reboot/cold-start recovery does not notify again.
+                        ep.reminderDao().setAlarmFired(id, true)
                     }
                 }
             } finally {

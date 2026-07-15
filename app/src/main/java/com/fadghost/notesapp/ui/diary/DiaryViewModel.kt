@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fadghost.notesapp.data.db.dao.DiaryDao
 import com.fadghost.notesapp.data.db.entity.DiaryEntry
+import com.fadghost.notesapp.data.ai.AiRepository
 import com.fadghost.notesapp.data.prefs.DiaryPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -38,7 +39,8 @@ data class DiaryUiState(
 class DiaryViewModel @Inject constructor(
     private val diaryDao: DiaryDao,
     diaryPreferences: DiaryPreferences,
-    private val lockManager: DiaryLockManager
+    private val lockManager: DiaryLockManager,
+    private val aiRepository: AiRepository
 ) : ViewModel() {
 
     private val today = MutableStateFlow(LocalDate.now())
@@ -59,6 +61,8 @@ class DiaryViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DiaryUiState())
 
     private var saveJob: Job? = null
+    private val _cleaningTranscript = MutableStateFlow(false)
+    val cleaningTranscript: StateFlow<Boolean> = _cleaningTranscript
 
     private fun build(entries: List<DiaryEntry>, day: LocalDate): DiaryUiState {
         val byDate = entries.associateBy { it.date }
@@ -126,6 +130,17 @@ class DiaryViewModel @Inject constructor(
     fun saveEntryNow(date: LocalDate, body: String, mood: Int?) {
         saveJob?.cancel()
         viewModelScope.launch { persist(date, body, mood) }
+    }
+
+    /** Raw speech is inserted first; cleanup only runs after the visible Make it clean action. */
+    fun cleanTranscript(raw: String, onResult: (Result<String>) -> Unit) {
+        if (raw.isBlank() || _cleaningTranscript.value) return
+        viewModelScope.launch {
+            _cleaningTranscript.value = true
+            val result = runCatching { aiRepository.cleanDiaryTranscript(raw) }
+            _cleaningTranscript.value = false
+            onResult(result)
+        }
     }
 
     private suspend fun persist(date: LocalDate, body: String, mood: Int?) {

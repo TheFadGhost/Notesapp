@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import com.fadghost.notesapp.data.db.dao.ReminderDao
 import com.fadghost.notesapp.data.db.entity.Reminder
+import com.fadghost.notesapp.notify.ReminderNotifier
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -36,23 +37,24 @@ class AlarmScheduler @Inject constructor(
      * lets recurrence advance from the original clock time (audit M1).
      */
     override fun scheduleReminder(reminder: Reminder) {
-        if (reminder.done) return
+        val exactAllowed = canExact()
+        val request = AlarmSchedulingPolicy.request(reminder, exactAllowed) ?: return
         val pi = pendingIntent(reminder.id, create = true) ?: return
-        val at = reminder.snoozedUntil ?: reminder.triggerAt
         try {
-            if (canExact()) {
-                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+            if (request.precision == AlarmPrecision.EXACT) {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, request.atMillis, pi)
             } else {
                 // Best-effort fallback: still fires, just not guaranteed to the second.
-                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, request.atMillis, pi)
             }
         } catch (_: SecurityException) {
-            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, request.atMillis, pi)
         }
     }
 
     override fun cancelReminder(reminderId: Long) {
         pendingIntent(reminderId, create = false)?.let { alarmManager.cancel(it) }
+        ReminderNotifier.cancel(context, reminderId)
     }
 
     /** Rearm every not-done reminder — called after reboot / app update. */

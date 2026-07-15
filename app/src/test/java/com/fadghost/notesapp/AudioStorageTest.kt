@@ -10,6 +10,28 @@ import java.io.File
 
 /** Attachment orphan detection + storage totals (PLAN.md §6). */
 class AudioStorageTest {
+    @Test fun recordingSessionsUseDifferentPathsAndPreserveEarlierFiles() {
+        val filesDir = createTempDir(prefix = "voice_sessions_")
+        val noteDir = AudioStorage.noteDir(filesDir, 9)
+        val firstDir = AudioStorage.sessionDir(noteDir, "session-a")
+        val secondDir = AudioStorage.sessionDir(noteDir, "session-b")
+        val first = AudioStorage.segmentFile(firstDir, 0).apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val second = AudioStorage.segmentFile(secondDir, 0)
+        assertTrue(first.absolutePath != second.absolutePath)
+        assertTrue(first.exists())
+        filesDir.deleteRecursively()
+    }
+
+    @Test fun nestedEmptySessionDirectoriesArePrunedButRootRemains() {
+        val filesDir = createTempDir(prefix = "voice_prune_")
+        val root = AudioStorage.root(filesDir).apply { mkdirs() }
+        val empty = AudioStorage.sessionDir(AudioStorage.noteDir(filesDir, 3), "gone").apply { mkdirs() }
+        assertTrue(empty.exists())
+        AudioStorage.pruneEmptyDirectories(root)
+        assertTrue(!empty.exists())
+        assertTrue(root.exists())
+        filesDir.deleteRecursively()
+    }
 
     @get:Rule val tmp = TemporaryFolder()
 

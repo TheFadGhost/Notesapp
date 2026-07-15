@@ -2,7 +2,7 @@
 
 Personal AI-powered notes, diary and calendar for Android — local-first, with a custom paper-and-ink design system and your own OpenRouter key for the AI bits.
 
-![version](https://img.shields.io/badge/version-v3.0.0-8a5a44?style=flat-square)
+![version](https://img.shields.io/badge/version-v4.0.0-8a5a44?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-Android%2012%2B-3ddc84?style=flat-square&logo=android&logoColor=white)
 ![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 ![kotlin](https://img.shields.io/badge/Kotlin-2.1-7f52ff?style=flat-square&logo=kotlin&logoColor=white)
@@ -29,12 +29,14 @@ Notesapp is a single-user Android app I built for myself: notes, a diary and a c
 - Transcribe via OpenRouter STT (default `qwen/qwen3-asr-flash-2026-02-10`)
 - Transcript lands in the note with a circular audio chip and popover player
 - Optional auto clean-up on the transcript
+- Foreground recording with a permission-gated draggable Pause/Stop overlay over other apps
 
 **Calendar & reminders**
 - Custom springy month/week/agenda views
 - Exact alarms that survive reboots, with Done/Snooze notification actions
 - Natural-language quick-add ("gym tomorrow 7am") parsed locally
 - Battery-killer warnings for reliable delivery
+- Optional event end times and actionable exact-alarm/notification permission checks
 
 **Diary**
 - Day-per-entry with mood, streaks and a heat-map
@@ -50,6 +52,7 @@ Notesapp is a single-user Android app I built for myself: notes, a diary and a c
 **Capture fast**
 - Quick-settings tile, app-icon shortcuts, share/selected-text into a note
 - Bottom-right contextual FAB with an anchored capture panel
+- Share notes and diary entries as locally generated PDFs
 
 **Privacy**
 - Everything stored on-device; the only network traffic is your own OpenRouter calls

@@ -1,5 +1,6 @@
 package com.fadghost.notesapp.ui.diary
 
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -32,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
@@ -40,6 +43,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
@@ -74,6 +82,7 @@ fun DiaryScreen(viewModel: DiaryViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val biometricEnabled by viewModel.biometricEnabled.collectAsStateWithLifecycle()
     val locked by viewModel.locked.collectAsStateWithLifecycle()
+    val cleaningTranscript by viewModel.cleaningTranscript.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { viewModel.refreshToday() }
 
@@ -83,6 +92,9 @@ fun DiaryScreen(viewModel: DiaryViewModel = hiltViewModel()) {
     }
 
     var openDay by remember { mutableStateOf<LocalDate?>(null) }
+    var showVoice by remember { mutableStateOf(false) }
+    var voiceTargetDate by remember { mutableStateOf<LocalDate?>(null) }
+    var pendingTranscript by remember { mutableStateOf<Pair<LocalDate, String>?>(null) }
 
     DiaryContent(
         state = state,
@@ -90,6 +102,11 @@ fun DiaryScreen(viewModel: DiaryViewModel = hiltViewModel()) {
         onLoadMore = viewModel::loadMore,
         onSaveTodayDebounced = { body, mood -> viewModel.saveEntry(state.today, body, mood) },
         onSaveTodayNow = { body, mood -> viewModel.saveEntryNow(state.today, body, mood) },
+        cleaningTranscript = cleaningTranscript,
+        onCleanTranscript = viewModel::cleanTranscript,
+        pendingTranscript = pendingTranscript,
+        onTranscriptConsumed = { pendingTranscript = null },
+        onStartVoice = { day -> voiceTargetDate = day; showVoice = true },
         onOpenDay = { openDay = it }
     )
 
@@ -97,9 +114,23 @@ fun DiaryScreen(viewModel: DiaryViewModel = hiltViewModel()) {
         DiaryDayEditor(
             date = day,
             viewModel = viewModel,
+            pendingTranscript = pendingTranscript?.takeIf { it.first == day }?.second,
+            onTranscriptConsumed = { pendingTranscript = null },
+            onStartVoice = { voiceTargetDate = day; showVoice = true },
             onClose = { openDay = null }
         )
     }
+
+    com.fadghost.notesapp.ui.voice.VoiceRecordingSheet(
+        visible = showVoice,
+        targetNoteId = 0L,
+        appendMode = false,
+        transcriptOnly = true,
+        onDismiss = { showVoice = false },
+        onTranscriptReady = { text ->
+            voiceTargetDate?.let { pendingTranscript = it to text }
+        }
+    )
 }
 
 @Composable
@@ -109,6 +140,11 @@ private fun DiaryContent(
     onLoadMore: () -> Unit,
     onSaveTodayDebounced: (String, Int?) -> Unit,
     onSaveTodayNow: (String, Int?) -> Unit,
+    cleaningTranscript: Boolean,
+    onCleanTranscript: (String, (Result<String>) -> Unit) -> Unit,
+    pendingTranscript: Pair<LocalDate, String>?,
+    onTranscriptConsumed: () -> Unit,
+    onStartVoice: (LocalDate) -> Unit,
     onOpenDay: (LocalDate) -> Unit
 ) {
     val tokens = Aura.tokens
@@ -141,6 +177,7 @@ private fun DiaryContent(
     // background re-emissions (after autosave) never clobber in-progress typing.
     var todayBody by remember { mutableStateOf(TextFieldValue("")) }
     var todayMood by remember { mutableStateOf<Mood?>(null) }
+    var todayInsertion by remember { mutableStateOf<TranscriptInsertion?>(null) }
     var seededDate by remember { mutableStateOf<LocalDate?>(null) }
     LaunchedEffect(state.loaded, state.today) {
         if (state.loaded && seededDate != state.today) {
@@ -148,6 +185,16 @@ private fun DiaryContent(
             todayBody = TextFieldValue(text, TextRange(text.length))
             todayMood = Mood.fromScore(state.todayEntry?.mood)
             seededDate = state.today
+        }
+    }
+    LaunchedEffect(pendingTranscript) {
+        pendingTranscript?.takeIf { it.first == state.today }?.let { (_, spoken) ->
+            DiaryTranscriptEdit.append(todayBody.text, spoken).let { edit ->
+                todayInsertion = edit
+                todayBody = TextFieldValue(edit.text, TextRange(edit.end))
+                onSaveTodayDebounced(edit.text, todayMood?.score)
+            }
+            onTranscriptConsumed()
         }
     }
 
@@ -175,7 +222,11 @@ private fun DiaryContent(
 
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            // imePadding: shrink the list viewport above the keyboard so the focused
+            // Today field auto-scrolls into view instead of hiding behind the IME
+            // (edge-to-edge means we consume the ime inset ourselves — same fix the
+            // editor's toolbar uses). navPillClearance keeps the tail above the pill.
+            modifier = Modifier.fillMaxSize().imePadding(),
             contentPadding = PaddingValues(
                 start = 20.dp, end = 20.dp, top = 4.dp, bottom = navPillClearance
             ),
@@ -214,6 +265,11 @@ private fun DiaryContent(
                         todayBody = next
                         onSaveTodayDebounced(next.text, todayMood?.score)
                     },
+                    cleaningTranscript = cleaningTranscript,
+                    onCleanTranscript = onCleanTranscript,
+                    onStartVoice = { onStartVoice(state.today) },
+                    transcriptInsertion = todayInsertion,
+                    onTranscriptCleaned = { todayInsertion = null },
                     bodyFocus = todayFocus
                 )
             }
@@ -258,9 +314,18 @@ private fun TodayCard(
     onMoodChange: (Mood?) -> Unit,
     prompts: List<PromptTemplate>,
     onPrompt: (String) -> Unit,
+    cleaningTranscript: Boolean,
+    onCleanTranscript: (String, (Result<String>) -> Unit) -> Unit,
+    onStartVoice: () -> Unit,
+    transcriptInsertion: TranscriptInsertion?,
+    onTranscriptCleaned: () -> Unit,
     bodyFocus: FocusRequester? = null
 ) {
     val tokens = Aura.tokens
+    val latestBody by rememberUpdatedState(body)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var cleanupMessage by remember { mutableStateOf<String?>(null) }
     Column(
         Modifier
             .fillMaxWidth()
@@ -276,11 +341,39 @@ private fun TodayCard(
                 Spacer(Modifier.height(2.dp))
                 BasicText(date.format(TODAY_FMT), style = AuraType.titleLg.copy(color = tokens.colors.textPrimary))
             }
+            DiaryIconButton(com.fadghost.notesapp.ui.components.Glyph.SHARE, "Share diary as PDF") {
+                scope.launch { com.fadghost.notesapp.ui.share.DocumentShare.sharePdf(context, date.format(TODAY_FMT), body.text) }
+            }
+            DiaryIconButton(com.fadghost.notesapp.ui.components.Glyph.MIC, "Transcribe into diary") {
+                onStartVoice()
+            }
         }
         Spacer(Modifier.height(14.dp))
         MoodPicker(selected = mood, onSelect = onMoodChange)
         Spacer(Modifier.height(14.dp))
         DiaryBodyField(body = body, onBodyChange = onBodyChange, placeholder = "Write about your day…", focusRequester = bodyFocus)
+
+        transcriptInsertion?.let { pending ->
+            Spacer(Modifier.height(10.dp))
+            PromptChip(label = if (cleaningTranscript) "Cleaning…" else "Make it clean") {
+                if (!cleaningTranscript) onCleanTranscript(pending.raw) { result ->
+                    result.getOrNull()?.let { cleaned ->
+                        val next = DiaryTranscriptEdit.replaceIfUnchanged(latestBody.text, pending, cleaned)
+                        if (next == null) cleanupMessage = "Transcript changed while cleaning — your edits were kept. Try again."
+                        else {
+                            val caret = (pending.start + cleaned.trim().length).coerceAtMost(next.length)
+                            onBodyChange(TextFieldValue(next, TextRange(caret)))
+                            onTranscriptCleaned()
+                            cleanupMessage = null
+                        }
+                    }
+                }
+            }
+        }
+        cleanupMessage?.let {
+            Spacer(Modifier.height(6.dp))
+            BasicText(it, style = AuraType.labelSm.copy(color = tokens.colors.danger))
+        }
 
         if (body.text.isBlank() && prompts.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
@@ -346,6 +439,27 @@ private fun PromptChip(label: String, onClick: () -> Unit) {
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
         BasicText(label, style = AuraType.label.copy(color = tokens.colors.accent))
+    }
+}
+
+@Composable
+private fun DiaryIconButton(
+    glyph: com.fadghost.notesapp.ui.components.Glyph,
+    description: String,
+    onClick: () -> Unit
+) {
+    val tokens = Aura.tokens
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        Modifier
+            .size(48.dp)
+            .clip(RoundedCornerShape(tokens.radii.pill))
+            .auraPress(interaction, tint = true)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .semantics { contentDescription = description; role = Role.Button },
+        contentAlignment = Alignment.Center
+    ) {
+        com.fadghost.notesapp.ui.components.AuraGlyph(glyph, tokens.colors.accent, Modifier.size(20.dp))
     }
 }
 
@@ -514,12 +628,21 @@ private fun DiaryFirstRun() {
 private fun DiaryDayEditor(
     date: LocalDate,
     viewModel: DiaryViewModel,
+    pendingTranscript: String?,
+    onTranscriptConsumed: () -> Unit,
+    onStartVoice: () -> Unit,
     onClose: () -> Unit
 ) {
     val tokens = Aura.tokens
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val cleaning by viewModel.cleaningTranscript.collectAsStateWithLifecycle()
     var body by remember(date) { mutableStateOf(TextFieldValue("")) }
     var mood by remember(date) { mutableStateOf<Mood?>(null) }
     var loaded by remember(date) { mutableStateOf(false) }
+    var insertion by remember(date) { mutableStateOf<TranscriptInsertion?>(null) }
+    var cleanupMessage by remember(date) { mutableStateOf<String?>(null) }
+    val latestBody by rememberUpdatedState(body)
 
     LaunchedEffect(date) {
         val entry = viewModel.entryFor(date)
@@ -527,6 +650,16 @@ private fun DiaryDayEditor(
         body = TextFieldValue(text, TextRange(text.length))
         mood = Mood.fromScore(entry?.mood)
         loaded = true
+    }
+    LaunchedEffect(pendingTranscript, loaded) {
+        if (loaded && !pendingTranscript.isNullOrBlank()) {
+            DiaryTranscriptEdit.append(body.text, pendingTranscript).let { edit ->
+                insertion = edit
+                body = TextFieldValue(edit.text, TextRange(edit.end))
+                viewModel.saveEntry(date, edit.text, mood?.score)
+            }
+            onTranscriptConsumed()
+        }
     }
 
     fun persist() {
@@ -545,6 +678,7 @@ private fun DiaryDayEditor(
             Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 40.dp)
@@ -552,6 +686,12 @@ private fun DiaryDayEditor(
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 BackPill(onClick = { persist(); onClose() })
                 Spacer(Modifier.weight(1f))
+                DiaryIconButton(com.fadghost.notesapp.ui.components.Glyph.SHARE, "Share diary as PDF") {
+                    scope.launch { com.fadghost.notesapp.ui.share.DocumentShare.sharePdf(context, date.format(CARD_FMT), body.text) }
+                }
+                DiaryIconButton(com.fadghost.notesapp.ui.components.Glyph.MIC, "Transcribe into diary") {
+                    onStartVoice()
+                }
             }
             Spacer(Modifier.height(8.dp))
             BasicText(date.format(TODAY_FMT), style = AuraType.titleLg.copy(color = tokens.colors.textPrimary))
@@ -568,6 +708,27 @@ private fun DiaryDayEditor(
                 placeholder = "Write about this day…",
                 minHeight = 240.dp
             )
+            insertion?.let { pending ->
+                Spacer(Modifier.height(10.dp))
+                PromptChip(if (cleaning) "Cleaning…" else "Make it clean") {
+                    if (!cleaning) viewModel.cleanTranscript(pending.raw) { result ->
+                        result.getOrNull()?.let { cleaned ->
+                            val next = DiaryTranscriptEdit.replaceIfUnchanged(latestBody.text, pending, cleaned)
+                            if (next == null) cleanupMessage = "Transcript changed while cleaning — your edits were kept. Try again."
+                            else {
+                                body = TextFieldValue(next, TextRange((pending.start + cleaned.trim().length).coerceAtMost(next.length)))
+                                viewModel.saveEntryNow(date, next, mood?.score)
+                                insertion = null
+                                cleanupMessage = null
+                            }
+                        }
+                    }
+                }
+            }
+            cleanupMessage?.let {
+                Spacer(Modifier.height(6.dp))
+                BasicText(it, style = AuraType.labelSm.copy(color = tokens.colors.danger))
+            }
         }
     }
 }

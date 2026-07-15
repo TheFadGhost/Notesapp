@@ -62,6 +62,28 @@ STRICT RULES — follow every one, identically every time:
 9. Write bodies in the language of the note. Keys/slugs/types in English."""
 
     /**
+     * V2 makes tag provenance explicit. Capitalisation is typography, not semantic metadata;
+     * a tag must be an intentional concept emitted in the structured tags field.
+     */
+    val MEMORY_EXTRACT_V2 = MEMORY_EXTRACT_V1 + """
+
+10. tags: max 5 lowercase semantic topic words. Never derive a tag merely because a word is
+    capitalized, starts a sentence, is a heading, or is a person's name. Do not put # characters
+    in tags. Use an empty tags list when the note has no useful retrieval topic."""
+
+    /** Versioned diary transcript cleanup; used only after the user chooses Make it clean. */
+    const val DIARY_TRANSCRIPT_CLEAN_V1 = """You carefully clean a spoken diary transcript.
+
+STRICT RULES:
+1. Preserve every fact, feeling, name, date, number, uncertainty, and intention. Never add advice,
+   interpretation, sentiment, or events that were not spoken.
+2. Remove filler words, repeated fragments, false starts, and transcription stumbles.
+3. Turn the ramble into natural, properly punctuated sentences and short paragraphs. Use bullets
+   only when the speaker clearly listed things.
+4. Keep the speaker's language, tone, point of view, and meaning.
+5. Output only the cleaned diary text. No title, hashtags, preamble, or commentary."""
+
+    /**
      * P4 REWRITE_LEGIBLE_V1 (V3-PROMPTS.md §1.5) — VERBATIM. Ramble/transcript → clean note,
      * streamed into the existing before/after sheet. Distinct from Clean-up (light tidy):
      * Rewrite is a full restructure. Params: temp 0.4, max_tokens 8192, streamed, reasoning
@@ -176,6 +198,35 @@ Output ONLY the JSON object — no prose, no code fences."""
     fun reviseSystem(nowIso: String): String = """You revise a single extracted action based on the user's instruction.
 The current date-time is $nowIso.
 Return ONLY a JSON object for the one revised item: {"type":..., "title":..., "datetime":..., "notes":...}. No prose, no code fences."""
+
+    /**
+     * RAMBLE_EXTRACT_V1 — VERBATIM. Voice-ramble transcript → actions, reusing the same
+     * `{"items":[…]}` shape + [EXTRACT_SCHEMA] as the note Extract flow. The key difference
+     * from [extractSystem]: it is told to emit a **date-only** string (no clock time) when the
+     * user names a day but no time, so the deterministic app-side default (08:00, via
+     * `ExtractionValidator(dateOnlyDefaultTime = LocalTime.of(8,0))`) is what applies — the
+     * owner's "remind me at 8" rule. Today's date is appended as a separate context line by the
+     * caller (like Rewrite). temp 0.0, reasoning excluded. DO NOT reword — any change = new suffix.
+     */
+    const val RAMBLE_EXTRACT_V1 = """You extract actionable items from a spoken, rambling voice transcript.
+
+STRICT RULES — follow every one, identically every time:
+1. Extract EVENTS (something happening at a set time), REMINDERS (a nudge the user asked for),
+   and TODOs (a task with no fixed time). Only items the user genuinely intends — never invent
+   items, and never turn a musing ("maybe I should…") into a commitment unless clearly decided.
+2. Output a JSON object {"items":[...]} where each item has:
+   - "type": one of "event", "reminder", "todo".
+   - "title": a short imperative title (required, non-empty), in the user's language.
+   - "datetime": per rule 3; omit entirely for a plain todo with no day.
+   - "notes": optional extra detail the user gave.
+3. DATES/TIMES — resolve relative expressions ("tomorrow", "next Friday") to an absolute date
+   using the provided current date-time, THEN:
+   - If the user gave a specific clock time ("at 6pm", "half nine", "at about 6"), output a full
+     ISO-8601 datetime WITH that time, e.g. "2026-07-17T18:00:00".
+   - If the user named a DAY but NO clock time ("tomorrow", "on Friday"), output a DATE ONLY
+     "YYYY-MM-DD" with NO time component. Do NOT invent a time.
+4. Deduplicate — do not emit the same action twice just because the user repeated themselves.
+5. Output ONLY the JSON object — no prose, no code fences, no commentary."""
 
     /** The strict-ish JSON schema handed to `response_format`. */
     val EXTRACT_SCHEMA: JsonObject = buildJsonObject {

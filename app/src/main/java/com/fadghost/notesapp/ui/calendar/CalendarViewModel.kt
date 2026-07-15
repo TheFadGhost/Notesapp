@@ -2,7 +2,7 @@ package com.fadghost.notesapp.ui.calendar
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.fadghost.notesapp.alarm.AlarmScheduler
+import com.fadghost.notesapp.alarm.ReminderAlarm
 import com.fadghost.notesapp.data.db.dao.EventDao
 import com.fadghost.notesapp.data.db.dao.ReminderDao
 import com.fadghost.notesapp.data.db.entity.Event
@@ -35,7 +35,7 @@ data class CalendarData(
 class CalendarViewModel @Inject constructor(
     private val eventDao: EventDao,
     private val reminderDao: ReminderDao,
-    private val alarmScheduler: AlarmScheduler
+    private val alarmScheduler: ReminderAlarm
 ) : ViewModel() {
 
     val data: StateFlow<CalendarData> =
@@ -59,7 +59,7 @@ class CalendarViewModel @Inject constructor(
         baseId: Long,
         title: String,
         startAt: Long,
-        endAt: Long,
+        endAt: Long?,
         timezone: String,
         notes: String?,
         recurrence: Recurrence
@@ -70,7 +70,7 @@ class CalendarViewModel @Inject constructor(
                     id = baseId,
                     title = title.trim().ifBlank { "Event" },
                     startAt = startAt,
-                    endAt = endAt.coerceAtLeast(startAt),
+                    endAt = endAt?.let { EventEndTime.validEnd(startAt, it) },
                     timezone = timezone,
                     notes = notes?.trim()?.takeIf { it.isNotBlank() },
                     recurrence = recurrence
@@ -99,6 +99,9 @@ class CalendarViewModel @Inject constructor(
         recurrence: Recurrence
     ) {
         viewModelScope.launch {
+            // Editing keeps the same PendingIntent identity. Cancel first so both the
+            // old alarm and any already-visible notification are replaced cleanly.
+            if (baseId != 0L) alarmScheduler.cancelReminder(baseId)
             val id = reminderDao.upsert(
                 Reminder(
                     id = baseId,
@@ -107,6 +110,7 @@ class CalendarViewModel @Inject constructor(
                     timezone = timezone,
                     done = false,
                     snoozedUntil = null,
+                    alarmFired = false,
                     recurrence = recurrence
                 )
             )
@@ -123,7 +127,7 @@ class CalendarViewModel @Inject constructor(
             if (existing != null) {
                 offerUndo("Reminder deleted") {
                     reminderDao.upsert(existing)
-                    if (!existing.done) alarmScheduler.scheduleReminder(existing)
+                    if (!existing.done && !existing.alarmFired) alarmScheduler.scheduleReminder(existing)
                 }
             }
         }
@@ -135,9 +139,15 @@ class CalendarViewModel @Inject constructor(
             if (done) {
                 alarmScheduler.cancelReminder(baseId)
             } else {
+                reminderDao.setAlarmFired(baseId, false)
                 reminderDao.getById(baseId)?.let { alarmScheduler.scheduleReminder(it) }
             }
         }
+    }
+
+    /** Re-check pending rows after returning from OS alarm/notification settings. */
+    fun reschedulePending() {
+        viewModelScope.launch { alarmScheduler.rescheduleAll() }
     }
 
     // --- Undo plumbing ----------------------------------------------------------

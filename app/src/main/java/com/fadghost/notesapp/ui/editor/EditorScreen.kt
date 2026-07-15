@@ -321,6 +321,7 @@ fun EditorScreen(
             Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 96.dp)
@@ -353,6 +354,16 @@ fun EditorScreen(
                         }
                         MicAction(tint = tokens.colors.accent) { onVoice() }
                         IconAction(Glyph.PAPERCLIP, tint = tokens.colors.accent) { onAttach() }
+                        IconAction(Glyph.SHARE, tint = tokens.colors.accent) {
+                            focus.clearFocus()
+                            coachScope.launch {
+                                com.fadghost.notesapp.ui.share.DocumentShare.sharePdf(
+                                    context,
+                                    titleValue.text,
+                                    bodyValue.text
+                                )
+                            }
+                        }
                         // Push the chips to the right of the cluster when there's room; use a
                         // fixed gap in the scrollable case (weight is invalid inside scroll).
                         if (scrollable) Spacer(Modifier.width(12.dp)) else Spacer(Modifier.weight(1f))
@@ -449,6 +460,9 @@ fun EditorScreen(
                     modifier = Modifier
                         .focusRequester(bodyFocus)
                         .fillMaxWidth()
+                        // Reserve a right rail for voice controls. Text and the caret never sit
+                        // below the floating audio widget, including while the IME is visible.
+                        .padding(end = 32.dp)
                         .heightForBody()
                         // Swipe-right on a line indents it (PLAN.md §6).
                         .pointerInput(Unit) {
@@ -491,7 +505,20 @@ fun EditorScreen(
                 com.fadghost.notesapp.ui.attach.AttachmentChipOverlay(
                     chips = displayBody.chips,
                     layout = bodyLayout,
-                    onOpen = { id -> openAttachment = attachmentsById[id] }
+                    onOpen = { id -> openAttachment = attachmentsById[id] },
+                    onMove = { id, transformedOffset ->
+                        val sourceOffset = displayBody.unmapOffset(transformedOffset)
+                        val moved = com.fadghost.notesapp.ui.attach.AttachmentTokenMove.move(
+                            bodyValue.text, id, sourceOffset
+                        )
+                        if (moved != bodyValue.text) {
+                            applyBody(
+                                TextFieldValue(moved, TextRange(sourceOffset.coerceIn(0, moved.length))),
+                                UndoStack.CoalesceKey.BOUNDARY
+                            )
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        }
+                    }
                 )
             }
         }

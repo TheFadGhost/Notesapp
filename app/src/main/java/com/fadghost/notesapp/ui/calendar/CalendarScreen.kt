@@ -1,6 +1,8 @@
 package com.fadghost.notesapp.ui.calendar
 
 import android.Manifest
+import android.app.AlarmManager
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -39,9 +41,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -55,6 +59,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.fadghost.notesapp.data.db.entity.Recurrence
 import com.fadghost.notesapp.ui.components.AuraGlyph
 import com.fadghost.notesapp.ui.components.AuraUndoSnackbar
@@ -108,7 +115,7 @@ fun CalendarScreen(
 
     fun openNew() {
         val start = selected.atTime(9, 0).atZone(zone).toInstant().toEpochMilli()
-        draft = ItemDraft(kind = CalendarKind.EVENT, start = start, end = start + 3_600_000L)
+        draft = ItemDraft(kind = CalendarKind.EVENT, start = start, end = null)
     }
 
     // Shell signals: nav re-tap scrolls to top; the contextual FAB starts a new event.
@@ -128,7 +135,7 @@ fun CalendarScreen(
         data.reminders.firstOrNull { it.id == id }?.let { r ->
             draft = ItemDraft(
                 baseId = r.id, kind = CalendarKind.REMINDER, title = r.title,
-                start = r.triggerAt, end = r.triggerAt, notes = "", recurrence = r.recurrence
+                start = r.triggerAt, end = null, notes = "", recurrence = r.recurrence
             )
             CalendarDeepLink.clear()
         }
@@ -159,7 +166,7 @@ fun CalendarScreen(
             }
         } else {
             data.reminders.firstOrNull { it.id == item.baseId }?.let { r ->
-                ItemDraft(r.id, CalendarKind.REMINDER, r.title, r.triggerAt, r.triggerAt, "", r.recurrence)
+                ItemDraft(r.id, CalendarKind.REMINDER, r.title, r.triggerAt, null, "", r.recurrence)
             }
         }
     }
@@ -193,7 +200,7 @@ fun CalendarScreen(
                 }
             }
             item(key = "banners") {
-                ReminderSetupCard(context)
+                ReminderSetupCard(context, onPermissionsChanged = viewModel::reschedulePending)
             }
             item(key = "quickadd") {
                 QuickAddBar(
@@ -517,21 +524,41 @@ private fun CalendarEmptyState() {
  * appears.
  */
 @Composable
-private fun ReminderSetupCard(context: Context) {
+private fun ReminderSetupCard(context: Context, onPermissionsChanged: () -> Unit) {
     var dismissed by remember { mutableStateOf(false) }
-    var notifGranted by remember { mutableStateOf(hasNotifPermission(context)) }
     var notifAsked by remember { mutableStateOf(false) }
-    val ignoringBattery = remember { isIgnoringBatteryOptimizations(context) }
+    var refreshKey by remember { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { result ->
-        notifGranted = result
-        notifAsked = true
+    // Permission and channel state can change while the OS settings screen covers
+    // the app. Refresh on resume, then re-arm rows that could not notify before.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshKey++
+                onPermissionsChanged()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val notifSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-    val notifNeeded = notifSupported && !notifGranted
+    val notifGranted = remember(refreshKey) { canPostReminderNotifications(context) }
+    val exactGranted = remember(refreshKey) { canScheduleExactAlarms(context) }
+    val ignoringBattery = remember(refreshKey) { isIgnoringBatteryOptimizations(context) }
+
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { result ->
+        notifAsked = true
+        refreshKey++
+        if (result) onPermissionsChanged()
+    }
+
+    val runtimeNotifPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    val notifNeeded = !notifGranted
+    val exactNeeded = !exactGranted
     val batteryNeeded = !ignoringBattery
-    if (dismissed || (!notifNeeded && !batteryNeeded)) return
+    val criticalSetupNeeded = notifNeeded || exactNeeded
+    if ((dismissed && !criticalSetupNeeded) || (!criticalSetupNeeded && !batteryNeeded)) return
 
     val tokens = Aura.tokens
     Column(
@@ -551,7 +578,9 @@ private fun ReminderSetupCard(context: Context) {
                 style = AuraType.bodyLg.copy(color = tokens.colors.textPrimary),
                 modifier = Modifier.weight(1f)
             )
-            BannerAction("Dismiss", subtle = true) { dismissed = true }
+            if (!criticalSetupNeeded) {
+                BannerAction("Dismiss", subtle = true) { dismissed = true }
+            }
         }
         Spacer(Modifier.size(4.dp))
         BasicText(
@@ -562,15 +591,26 @@ private fun ReminderSetupCard(context: Context) {
         if (notifNeeded) {
             Spacer(Modifier.size(14.dp))
             BasicText(
-                if (notifAsked) "Notifications are off. Enable them in Settings so reminders can alert you."
+                if (notifAsked || !runtimeNotifPermission) "Notifications are off. Enable them in Settings so reminders can alert you."
                 else "Reminders need notification access to alert you at the right time.",
                 style = AuraType.label.copy(color = tokens.colors.textSecondary)
             )
             Spacer(Modifier.size(8.dp))
-            BannerAction(if (notifAsked) "Open notification settings" else "Enable notifications") {
-                if (notifAsked) openAppNotificationSettings(context)
+            BannerAction(if (notifAsked || !runtimeNotifPermission) "Open notification settings" else "Enable notifications") {
+                if (notifAsked || !runtimeNotifPermission) openAppNotificationSettings(context)
                 else launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+
+        if (exactNeeded) {
+            Spacer(Modifier.size(14.dp))
+            BasicText(
+                "Allow precise alarms so reminders can alert at the time you chose. " +
+                    "Without it, Android may delay them.",
+                style = AuraType.label.copy(color = tokens.colors.textSecondary)
+            )
+            Spacer(Modifier.size(8.dp))
+            BannerAction("Allow precise alarms") { openExactAlarmSettings(context) }
         }
 
         if (batteryNeeded) {
@@ -620,10 +660,20 @@ private fun dayLabel(day: LocalDate, today: LocalDate): String = when (day) {
     else -> day.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))
 }
 
-private fun hasNotifPermission(context: Context): Boolean =
-    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+private fun canPostReminderNotifications(context: Context): Boolean {
+    val runtimeGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
         androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
         android.content.pm.PackageManager.PERMISSION_GRANTED
+    if (!runtimeGranted) return false
+    val manager = context.getSystemService(NotificationManager::class.java) ?: return false
+    if (!manager.areNotificationsEnabled()) return false
+    return Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+        manager.getNotificationChannel(com.fadghost.notesapp.notify.NotificationChannels.REMINDERS)?.importance !=
+        NotificationManager.IMPORTANCE_NONE
+}
+
+private fun canScheduleExactAlarms(context: Context): Boolean =
+    context.getSystemService(AlarmManager::class.java)?.canScheduleExactAlarms() == true
 
 private fun isIgnoringBatteryOptimizations(context: Context): Boolean {
     val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return true
@@ -635,6 +685,22 @@ private fun openAppNotificationSettings(context: Context) {
         .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     runCatching { context.startActivity(intent) }
+}
+
+private fun openExactAlarmSettings(context: Context) {
+    val intent = Intent(
+        Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+        Uri.parse("package:${context.packageName}")
+    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(intent) }
+        .onFailure {
+            runCatching {
+                context.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+        }
 }
 
 private fun openBatterySettings(context: Context) {

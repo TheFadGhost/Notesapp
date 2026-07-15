@@ -18,6 +18,30 @@ object AudioStorage {
 
     fun noteDir(filesDir: File, noteId: Long): File = File(root(filesDir), noteId.toString())
 
+    /** A recording session never shares segment filenames with another session. */
+    fun sessionDir(noteDir: File, sessionId: String): File {
+        val safe = sessionId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        return File(File(noteDir, "voice_sessions"), safe)
+    }
+
+    fun pruneEmptySessionParents(sessionDir: File) {
+        var current: File? = sessionDir
+        repeat(3) {
+            val dir = current ?: return
+            if (dir.name == DIR || dir.listFiles()?.isNotEmpty() == true) return
+            runCatching { dir.delete() }
+            current = dir.parentFile
+        }
+    }
+
+    /** Remove empty nested session directories bottom-up while retaining the attachment root. */
+    fun pruneEmptyDirectories(root: File) {
+        if (!root.exists()) return
+        root.walkBottomUp()
+            .filter { it.isDirectory && it != root }
+            .forEach { dir -> if (dir.listFiles()?.isEmpty() == true) runCatching { dir.delete() } }
+    }
+
     /** Segment file for [index] inside [noteDir], creating parent dirs as needed. */
     fun segmentFile(noteDir: File, index: Int): File {
         if (!noteDir.exists()) noteDir.mkdirs()

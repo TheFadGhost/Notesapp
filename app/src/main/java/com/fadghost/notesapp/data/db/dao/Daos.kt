@@ -253,7 +253,7 @@ interface ReminderDao {
     suspend fun getById(id: Long): Reminder?
 
     /** Not-done reminders — used to reschedule every pending alarm after reboot/update. */
-    @Query("SELECT * FROM Reminder WHERE done = 0")
+    @Query("SELECT * FROM Reminder WHERE done = 0 AND alarmFired = 0")
     suspend fun allPending(): List<Reminder>
 
     @Query("UPDATE Reminder SET done = :done WHERE id = :id")
@@ -261,6 +261,9 @@ interface ReminderDao {
 
     @Query("UPDATE Reminder SET triggerAt = :triggerAt, snoozedUntil = :snoozedUntil WHERE id = :id")
     suspend fun reschedule(id: Long, triggerAt: Long, snoozedUntil: Long?)
+
+    @Query("UPDATE Reminder SET alarmFired = :fired WHERE id = :id")
+    suspend fun setAlarmFired(id: Long, fired: Boolean)
 
     @Query("DELETE FROM Reminder WHERE id = :id")
     suspend fun deleteById(id: Long)
